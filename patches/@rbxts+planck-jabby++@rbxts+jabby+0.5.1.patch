@@ -1,0 +1,10 @@
+diff --git a/node_modules/@rbxts/planck-jabby/node_modules/@rbxts/jabby/out/jecs.luau b/node_modules/@rbxts/planck-jabby/node_modules/@rbxts/jabby/out/jecs.luau
+index aefc02d..7d689b7 100644
+--- a/node_modules/@rbxts/planck-jabby/node_modules/@rbxts/jabby/out/jecs.luau
++++ b/node_modules/@rbxts/planck-jabby/node_modules/@rbxts/jabby/out/jecs.luau
+@@ -1,4 +1,4 @@
+ -- Compiled with roblox-ts v3.0.0
+ local TS = _G[script]
+-local jecs = TS.import(script, TS.getModule(script, "@rbxts", "jecs").jecs)
++local jecs = TS.import(script, TS.getModule(script, "@rbxts", "jecs").src.jecs)
+ return jecs

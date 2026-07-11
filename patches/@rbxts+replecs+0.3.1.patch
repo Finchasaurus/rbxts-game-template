@@ -1,0 +1,13 @@
+diff --git a/node_modules/@rbxts/replecs/out/replecs/index.d.ts b/node_modules/@rbxts/replecs/out/replecs/index.d.ts
+index 723b199..95fffd5 100644
+--- a/node_modules/@rbxts/replecs/out/replecs/index.d.ts
++++ b/node_modules/@rbxts/replecs/out/replecs/index.d.ts
+@@ -16,7 +16,7 @@ declare namespace Replecs {
+       };
+ 
+   type MemberFilterMap = Map<Player, boolean>;
+-  type MemberFilter = Player | MemberFilterMap | undefined;
++  type MemberFilter = Player | MemberFilterMap | Record<string, never> | undefined;
+   type Member = unknown;
+ 
+   export interface SharedInfo<T> {

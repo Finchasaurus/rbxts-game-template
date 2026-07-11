@@ -1,0 +1,19 @@
+diff --git a/node_modules/@rbxts/jecs/src/jecs.d.ts b/node_modules/@rbxts/jecs/src/jecs.d.ts
+index e2de9d6..7b113df 100755
+--- a/node_modules/@rbxts/jecs/src/jecs.d.ts
++++ b/node_modules/@rbxts/jecs/src/jecs.d.ts
+@@ -155,6 +155,14 @@ export class World {
+ 	 */
+ 	target(entity: Entity, relation: Entity, index?: number): Entity | undefined;
+ 
++	/**
++	 * Gets an iterator for all targets of a relationship.
++	 * Returns an empty iterator if no matches are found.
++	 * @param entity The entity using a relationship pair.
++	 * @param relation The "relationship" component/tag
++	 */
++	targets(entity: Entity, relation: Entity): IterFn<[]>
++
+ 	/**
+ 	 * Deletes an entity (and its components/relationships) from the world entirely.
+ 	 * @param entity The entity to delete.

@@ -1,0 +1,70 @@
+{
+	"name": "rbxts-game-template",
+	"version": "1.0.0",
+	"description": "",
+	"main": "index.js",
+	"scripts": {
+		"build": "rbxtsc",
+		"watch": "rbxtsc -w",
+		"serve": "rojo serve",
+		"postinstall": "patch-package"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"type": "commonjs",
+	"devDependencies": {
+		"@rbxts/compiler-types": "^3.0.0-types.0",
+		"@rbxts/types": "^1.0.915",
+		"@typescript-eslint/eslint-plugin": "^8.51.0",
+		"@typescript-eslint/parser": "^8.51.0",
+		"eslint": "^9.39.2",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-prettier": "^5.5.5",
+		"eslint-plugin-roblox-ts": "^1.4.0",
+		"patch-package": "^8.0.1",
+		"prettier": "^3.8.1",
+		"rbxts-transformer-flamework": "^1.3.2",
+		"rbxts-transformer-jecs": "^0.0.11",
+		"roblox-ts": "^3.0.0",
+		"ts-plugin-sort-import-suggestions": "^1.0.4",
+		"typescript": "^5.5.3"
+	},
+	"dependencies": {
+		"@flamework/core": "^1.3.2",
+		"@flamework/networking": "^1.3.2",
+		"@kyrorblx/konsole": "^0.1.4",
+		"@rbxts/gizmo": "^3.0.3",
+		"@rbxts/jabby": "^0.4.0",
+		"@rbxts/jecs": "github:Ukendio/jecs",
+		"@rbxts/jecs-utils": "^1.4.2",
+		"@rbxts/lyra": "^0.6.1",
+		"@rbxts/planck": "^1.0.0",
+		"@rbxts/planck-jabby": "^1.0.0",
+		"@rbxts/planck-runservice": "^1.0.3",
+		"@rbxts/pretty-react-hooks": "^0.6.4",
+		"@rbxts/react": "^17.3.7-ts.1",
+		"@rbxts/react-devtools-core": "^17.3.7-ts.1",
+		"@rbxts/react-globals": "^17.3.7-ts.1",
+		"@rbxts/react-roblox": "^17.3.7-ts.1",
+		"@rbxts/replecs": "^0.3.1",
+		"@rbxts/services": "^1.6.0",
+		"@rbxts/t": "^3.2.1",
+		"@rbxts/ui-labs": "^2.4.2"
+	},
+	"overrides": {
+		"@rbxts/jecs": "github:Ukendio/jecs",
+		"@rbxts/jabby": {
+			"@rbxts/jecs": "github:Ukendio/jecs"
+		},
+		"@rbxts/jecs-utils": {
+			"@rbxts/jecs": "github:Ukendio/jecs"
+		},
+		"@rbxts/jecs-gizmo": {
+			"@rbxts/jecs": "github:Ukendio/jecs"
+		},
+		"@rbxts/planck-jabby": {
+			"@rbxts/jabby": "^0.5.1"
+		}
+	}
+}
