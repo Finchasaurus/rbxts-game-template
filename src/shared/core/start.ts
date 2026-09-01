@@ -5,9 +5,8 @@ import { Name } from "@rbxts/jecs";
 import { RunService } from "@rbxts/services";
 import * as components from "shared/components";
 import { registerNetworkProfiles } from "shared/network/profiles";
-import { hooked } from "./scheduler";
 
-export function start(world: World, ...containers: Instance[]) {
+export function start(world: World) {
 	for (const [name, component] of pairs(components)) {
 		if (typeIs(component, "number") === true) {
 			world.set(component, Name, name);
@@ -15,23 +14,6 @@ export function start(world: World, ...containers: Instance[]) {
 	}
 
 	registerNetworkProfiles(world);
-
-	for (const container of containers) {
-		for (const module of container.GetDescendants()) {
-			if (module.IsA("ModuleScript") === false) {
-				continue;
-			}
-
-			const [success] = pcall(require, module);
-			if (success === false) {
-				warn(`Failed to start module: ${module.GetFullName()}`);
-			}
-		}
-	}
-
-	for (const hook of hooked) {
-		hook(world);
-	}
 
 	const prefix = RunService.IsServer() ? "[SERVER]" : "[CLIENT]";
 

@@ -21,9 +21,3 @@ export function initScheduler(world: World) {
 export function scheduler() {
 	return s;
 }
-
-type HookCallback = (world: World) => void;
-export const hooked: HookCallback[] = [];
-export function hookInto(hook: HookCallback) {
-	hooked.push(hook);
-}
