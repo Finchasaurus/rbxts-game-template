@@ -46,6 +46,8 @@
             rojo
             pkgs.nodejs
             pkgs.git
+            pkgs.luau-lsp
+            pkgs.ripgrep
           ];
         };
       });
