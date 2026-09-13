@@ -6,11 +6,13 @@ import { Players } from "@rbxts/services";
 import { LocalPlayer, Player } from "shared/components";
 import { scheduler } from "shared/core/scheduler";
 
-function MakeLocalPlayer(world: World) {
-	const player = ref(Players.LocalPlayer);
-	world.set(player, Player, Players.LocalPlayer);
-	world.add(player, LocalPlayer);
+function RegisterLocalPlayer(world: World) {
+	const player = Players.LocalPlayer;
+	const playerId = ref(player);
 
-	world.set(Player, CustomHandler, () => ref(Players.LocalPlayer));
+	world.set(playerId, Player, player);
+	world.add(playerId, LocalPlayer);
+
+	world.set(Player, CustomHandler, (player: Player) => ref(player));
 }
-scheduler().addSystem(MakeLocalPlayer, Phase.Startup);
+scheduler().addSystem(RegisterLocalPlayer, Phase.Startup);
