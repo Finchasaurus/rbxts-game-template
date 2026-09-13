@@ -20,6 +20,12 @@ async function loadPlayerData(player: Player) {
 	});
 }
 
+function MakePlayerDataState(world: World) {
+	for (const [playerId] of world.query(Player).without(PlayerDataState)) {
+		world.set(playerId, PlayerDataState, PlayerDataStatus.Unloaded);
+	}
+}
+
 function LoadPlayerData(world: World) {
 	for (const [playerId, player, state] of world.query(Player, PlayerDataState)) {
 		if (state !== PlayerDataStatus.Unloaded) continue;
@@ -45,9 +51,5 @@ function LoadPlayerData(world: World) {
 				player.Kick(`There was a problem loading your data:\n${err}`);
 			});
 	}
-
-	for (const [playerId] of world.query(Player).without(PlayerDataState)) {
-		world.set(playerId, PlayerDataState, PlayerDataStatus.Unloaded);
-	}
 }
-scheduler().addSystem(LoadPlayerData);
+scheduler().addSystems([LoadPlayerData, MakePlayerDataState]);
