@@ -2,9 +2,10 @@ import Konsole from "@kyrorblx/konsole";
 import jabby, { applets, register } from "@rbxts/jabby";
 import type { World } from "@rbxts/jecs";
 import { Name } from "@rbxts/jecs";
+import { shared } from "@rbxts/replecs";
 import { RunService } from "@rbxts/services";
 import * as components from "shared/components";
-import { registerNetworkProfiles } from "shared/network/profiles";
+import { SharedComponents } from "shared/components/shared";
 
 export function start(world: World) {
 	for (const [name, component] of pairs(components)) {
@@ -13,7 +14,9 @@ export function start(world: World) {
 		}
 	}
 
-	registerNetworkProfiles(world);
+	for (const component of SharedComponents) {
+		world.add(component, shared);
+	}
 
 	const prefix = RunService.IsServer() ? "[SERVER]" : "[CLIENT]";
 

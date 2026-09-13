@@ -2,7 +2,6 @@ import type { World } from "@rbxts/jecs";
 import { ref } from "@rbxts/jecs-utils";
 import { onEvent } from "@rbxts/planck";
 import { Players } from "@rbxts/services";
-import { applyProfile } from "server/network/profiles";
 import { Replicator } from "server/network/replicator";
 import { Player } from "shared/components";
 import { scheduler } from "shared/core/scheduler";
@@ -10,10 +9,13 @@ import { scheduler } from "shared/core/scheduler";
 const [hasNewPlayersEvents, collectNewPlayerEvents] = onEvent(Players.PlayerAdded);
 function PlayerAddedSystem(world: World) {
 	for (const [, player] of collectNewPlayerEvents()) {
-		const playerEntity = ref(player);
-		world.set(playerEntity, Player, player);
-		applyProfile(playerEntity, "player");
-		Replicator.set_custom(playerEntity, Player);
+		const playerId = ref(player);
+
+		world.set(playerId, Player, player);
+
+		Replicator.set_networked(playerId);
+		Replicator.set_reliable(playerId, Player);
+		Replicator.set_custom(playerId, Player);
 	}
 }
 scheduler().addSystem({ system: PlayerAddedSystem, runConditions: [hasNewPlayersEvents] });
