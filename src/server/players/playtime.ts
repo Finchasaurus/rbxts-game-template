@@ -28,7 +28,7 @@ function SavePlaytimeOnTimer(world: World) {
 
 function SavePlaytimeOnLeave(world: World) {
 	for (const [, player, session] of world.query(Player, PlayerSession, Removing)) {
-		UpdatePlaytime(player, session).catch((err) => {
+		UpdatePlaytime(player, session).catch((err: string) => {
 			if (err !== "Store is clsoed") {
 				throw err;
 			}
