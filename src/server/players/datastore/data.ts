@@ -1,10 +1,5 @@
 import { Flamework } from "@flamework/core";
-import type { World } from "@rbxts/jecs";
 import { createPlayerStore, MockDataStoreService, MockMemoryStoreService } from "@rbxts/lyra";
-import { Phase } from "@rbxts/planck";
-import { Player, PlayerSession } from "shared/components";
-import { scheduler } from "shared/core/scheduler";
-import { UpdatePlaytime } from "./transformers/playtime";
 
 export interface ProfileData {
 	// Increment everytime we update and need to migrate data once game is published
@@ -56,14 +51,3 @@ export const playerDataStore = createPlayerStore({
 	dataStoreService: new MockDataStoreService(),
 	memoryStoreService: new MockMemoryStoreService(),
 });
-
-function DataBindToClose(world: World) {
-	game.BindToClose(() => {
-		for (const [, player, session] of world.query(Player, PlayerSession)) {
-			UpdatePlaytime(player, session);
-		}
-
-		playerDataStore.closeAsync();
-	});
-}
-scheduler().addSystem(DataBindToClose, Phase.Startup);
