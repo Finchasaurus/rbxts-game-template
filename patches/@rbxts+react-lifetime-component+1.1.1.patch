@@ -1,0 +1,13 @@
+diff --git a/node_modules/@rbxts/react-lifetime-component/out/Component/LifetimeComponent.d.ts b/node_modules/@rbxts/react-lifetime-component/out/Component/LifetimeComponent.d.ts
+index 0555567..681dc2c 100644
+--- a/node_modules/@rbxts/react-lifetime-component/out/Component/LifetimeComponent.d.ts
++++ b/node_modules/@rbxts/react-lifetime-component/out/Component/LifetimeComponent.d.ts
+@@ -1,6 +1,6 @@
+-import { PropsWithChildren } from "@rbxts/react";
++import { PropsWithChildren, ReactNode } from "@rbxts/react";
+ interface LifetimeComponentProps extends PropsWithChildren {
+     CanRecover?: boolean;
+ }
+-declare function LifetimeComponent(props: LifetimeComponentProps): JSX.Element;
++declare function LifetimeComponent(props: LifetimeComponentProps): ReactNode;
+ export default LifetimeComponent;

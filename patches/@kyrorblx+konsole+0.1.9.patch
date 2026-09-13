@@ -1,0 +1,76 @@
+diff --git a/node_modules/@kyrorblx/konsole/src/core/ui/elements/frontend/suggestions.luau b/node_modules/@kyrorblx/konsole/src/core/ui/elements/frontend/suggestions.luau
+index 2d6bf58..bb6411c 100644
+--- a/node_modules/@kyrorblx/konsole/src/core/ui/elements/frontend/suggestions.luau
++++ b/node_modules/@kyrorblx/konsole/src/core/ui/elements/frontend/suggestions.luau
+@@ -250,8 +250,8 @@ function Suggestions.attach(Session)
+ 
+ 		local suggList = self.refs.suggList
+ 		if suggList:IsA("ScrollingFrame") then
+-			local top = 2 + ((self.selectedSuggestion - 1) * rowHeight)
+ 			local rowHeight = self.config.panel.suggestionHeight
++			local top = 2 + ((self.selectedSuggestion - 1) * rowHeight)
+ 
+ 			local position = suggList.CanvasPosition.Y
+ 			local bottom = top + rowHeight
+diff --git a/node_modules/@kyrorblx/konsole/typings/index.d.ts b/node_modules/@kyrorblx/konsole/typings/index.d.ts
+index a69f84b..77c6a9b 100644
+--- a/node_modules/@kyrorblx/konsole/typings/index.d.ts
++++ b/node_modules/@kyrorblx/konsole/typings/index.d.ts
+@@ -10,33 +10,35 @@ declare namespace Konsole {
+ 				type?: "string";
+ 				default?: string;
+ 				required?: boolean;
+-				suggestions?: string[] | string;
++				suggestions?: readonly string[] | string;
+ 		}
+ 		| {
+ 				name?: string;
+ 				type: "number";
+ 				default?: number;
+ 				required?: boolean;
+-				suggestions?: `${number}`[] | `${number}`;
++				suggestions?: readonly `${number}`[] | `${number}`;
+ 		}
+ 		| {
+ 				name?: string;
+ 				type: "boolean";
+ 				default?: boolean;
+ 				required?: boolean;
+-				suggestions?: BooleanArgument[] | BooleanArgument;
++				suggestions?: readonly BooleanArgument[] | BooleanArgument;
+ 		}
+ 		| {
+ 				name?: string;
+ 				type: "player";
+ 				default?: never;
+ 				required?: boolean;
++				suggestions?: never;
+ 		}
+ 		| {
+ 				name?: string;
+ 				type: "players";
+ 				default?: never;
+ 				required?: boolean;
++				suggestions?: never;
+ 		};
+ 
+ 	export interface Outcome {
+@@ -45,12 +47,17 @@ declare namespace Konsole {
+ 		message: string;
+ 	}
+ 
++	type StringArgumentValue<T> =
++		T extends { suggestions: readonly (infer S)[] } ? S & string :
++		T extends { suggestions: infer S } ? S & string :
++		string;
++
+ 	type ArgumentValue<T extends Argument> =
+ 		T["type"] extends "number" ? number :
+ 		T["type"] extends "boolean" ? boolean :
+ 		T["type"] extends "player" ? Player :
+ 		T["type"] extends "players" ? Player[] :
+-		string;
++		StringArgumentValue<T>;
+ 
+ 	export type Run = (context: Context, ...args: unknown[]) => unknown;
+ 	export type RankResolver = (entity: unknown) => number | undefined;

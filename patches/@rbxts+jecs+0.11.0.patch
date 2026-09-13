@@ -1,19 +1,5731 @@
 diff --git a/node_modules/@rbxts/jecs/src/jecs.d.ts b/node_modules/@rbxts/jecs/src/jecs.d.ts
-index e2de9d6..7b113df 100755
+index 7b113df..3045e10 100755
 --- a/node_modules/@rbxts/jecs/src/jecs.d.ts
 +++ b/node_modules/@rbxts/jecs/src/jecs.d.ts
-@@ -155,6 +155,14 @@ export class World {
- 	 */
- 	target(entity: Entity, relation: Entity, index?: number): Entity | undefined;
+@@ -356,6 +356,8 @@ export declare const Delete: Tag;
+ export declare const Remove: Tag;
+ export declare const Name: Entity<string>;
+ export declare const Exclusive: Tag;
++export declare const IsA: Tag;
++export declare const DontFragment: Tag;
+ export declare const Rest: Entity;
  
-+	/**
-+	 * Gets an iterator for all targets of a relationship.
-+	 * Returns an empty iterator if no matches are found.
-+	 * @param entity The entity using a relationship pair.
-+	 * @param relation The "relationship" component/tag
-+	 */
-+	targets(entity: Entity, relation: Entity): IterFn<[]>
+ export type ComponentRecord = {
+diff --git a/node_modules/@rbxts/jecs/src/jecs.luau b/node_modules/@rbxts/jecs/src/jecs.luau
+index a8cb226..7499c58 100755
+--- a/node_modules/@rbxts/jecs/src/jecs.luau
++++ b/node_modules/@rbxts/jecs/src/jecs.luau
+@@ -19,18 +19,10 @@ export type Archetype = {
+ 	type: string,
+ 	entities: { Entity },
+ 	columns: { Column },
+-	columns_map: { [Component]: Column }
++	columns_map: { [Component]: Column },
++	owned_columns_map: { [Component]: Column }
+ }
+ 
+-export type QueryInner = {
+-	compatible_archetypes: { Archetype },
+-	archetypes_map: { [number]: number },
+-	ids: { Component },
+-	filter_with: { Component },
+-	filter_without: { Component },
+-	next: () -> (Entity, ...any),
+-	-- world: World,
+-}
+ 
+ type function ecs_entity_t(ty: type)
+ 	if ty:is("union") then
+@@ -90,6 +82,7 @@ export type Cached_Query<T...> = typeof(setmetatable(
+ 		archetypes: (Cached_Query<T...>, override: boolean?) -> { Archetype },
+ 		has: (Cached_Query<T...>, Entity) -> boolean,
+ 		fini: (Cached_Query<T...>) -> (),
++		sort: (Cached_Query<T...>, (Archetype, Archetype) -> boolean) -> Cached_Query<T...>,
+ 
+ 		ids: { Id<any> },
+ 		filter_with: { Id<any> }?,
+@@ -110,6 +103,7 @@ export type Query<T...> = typeof(setmetatable(
+ 		archetypes: (Query<T...>) -> { Archetype },
+ 		cached: (Query<T...>) -> Cached_Query<T...>,
+ 		has: (Query<T...>, Entity) -> boolean,
++		sort: (Query<T...>, (Archetype, Archetype) -> boolean) -> Query<T...>,
+ 		ids: { Id<any> },
+ 		filter_with: { Id<any> }?,
+ 		filter_without: { Id<any> }?,
+@@ -127,13 +121,40 @@ export type Observer = {
+ 	query: QueryInner,
+ }
+ 
++export type QueryInner = {
++	compatible_archetypes: { Archetype },
++	archetypes_map: { [number]: number },
++	ids: { Component },
++	filter_with: { Component },
++	filter_without: { Component },
++	next: () -> (Entity, ...any),
 +
- 	/**
- 	 * Deletes an entity (and its components/relationships) from the world entirely.
- 	 * @param entity The entity to delete.
++	df: boolean?,
++	df_with: { i53 }?,
++	df_without: { i53 }?,
++	df_frag_without: { i53 }?,
++	df_only: boolean?,
++	df_union_with: { i53 }?,
++	df_union_without: { i53 }?,
++	-- world: World,
++}
++
+ type query = {
+ 	compatible_archetypes: { archetype },
++	archetypes_map: { [number]: number }?,
+ 	ids: { i53 },
+ 	filter_with: { i53 },
+ 	filter_without: { i53 },
+ 	next: () -> (i53, ...any),
+ 	world: world,
++
++	df: boolean?,
++	df_with: { i53 }?,
++	df_without: { i53 }?,
++	df_frag_without: { i53 }?,
++	df_only: boolean?,
++	df_union_with: { i53 }?,
++	df_union_without: { i53 }?,
+ }
+ 
+ export type observer = {
+@@ -144,10 +165,27 @@ export type observer = {
+ type archetype = {
+ 	id: number,
+ 	types: { i53 },
++	idrs: { componentrecord },
+ 	type: string,
+ 	entities: { i53 },
+ 	columns: { Column },
+-	columns_map: { [i53]: Column }
++	columns_map: { [i53]: Column },
++	owned_columns_map: { [i53]: Column }
++}
++
++type pool = {
++	map_max: number,
++	map: buffer,
++
++	capacity: number,
++	size: number,
++	entities: buffer,
++	values: { any },
++	-- NOTE(marcus): For (R, *) pools the values list is instead used for
++	-- bookkeeping targets. When the exclusive flag is true that means values
++	-- holds a single value that. Otherwise it is a list of pair IDs.
++	wc: boolean?,
++	exclusive: boolean?,
+ }
+ 
+ type componentrecord = {
+@@ -158,19 +196,28 @@ type componentrecord = {
+ 	size: number,
+ 	cache: { number },
+ 
++	sparse: pool?,
++	dont_fragment_pairs: Map<i53, componentrecord>?,
++
+ 	on_add: ((entity: i53, id: i53, value: any, oldarchetype: archetype) -> ())?,
+ 	on_change: ((entity: i53, id: i53, value: any, oldarchetype: archetype) -> ())?,
+ 	on_remove: ((entity: i53, id: i53, delete: boolean?) -> ())?,
+ 
+-	wildcard_pairs: { [number]: componentrecord },
++	wildcard_pairs: { [number]: componentrecord }?,
+ }
+ type record = {
+ 	archetype: archetype,
+ 	row: number,
+ 	dense: i24,
++	df: boolean?,
++	-- NOTE(marcus): The `cr` flag is set once a component record is keyed by
++	-- this entity (as a component ID, relation, or target).
++	-- `world_delete` skips wildcard-record cleanup entirely when this is unset.
++	cr: boolean?,
+ }
+ type entityindex = {
+ 	dense_array: Map<number, i53>,
++	dense_count: number,
+ 	sparse_array: Map<i24, record>,
+ 	alive_count: number,
+ 	max_id: number,
+@@ -178,13 +225,21 @@ type entityindex = {
+ 	range_end: number?,
+ }
+ type world = {
++	debug: boolean?,
++	magic: number,
+ 	archetype_edges: Map<i53, Map<i53, archetype>>,
++	-- One-way exclusive replacement edges pointing INTO an archetype, for
++	-- cleanup on destroy: [dst archetype id] = { [src archetype id] = pair id }
++	exclusive_back_edges: Map<i53, Map<i53, i53>>,
+ 	archetype_index: { [string]: archetype },
+ 	archetypes: { [i53]: archetype },
+ 	component_index: Map<i53, componentrecord>,
+ 	entity_index: entityindex,
+ 	ROOT_ARCHETYPE: archetype,
+ 
++	df_enabled: boolean,
++	df_records: Map<i53, componentrecord>,
++
+ 	max_component_id: number,
+ 	max_archetype_id: number,
+ 
+@@ -194,7 +249,7 @@ type world = {
+ 	entity: (self: world, id: i53?) -> i53,
+ 	component: (self: world) -> i53,
+ 	target: (self: world, id: i53, relation: i53, index: number?) -> i53?,
+-	targets: (self: world, id: i53, relation: i53) -> () -> i53?,
++	targets: (self: world, id: i53, relation: i53) -> () -> i53,
+ 	delete: (self: world, id: i53) -> (),
+ 	add: (self: world, id: i53, component: i53) -> (),
+ 	set: (self: world, id: i53, component: i53, data: any) -> (),
+@@ -217,6 +272,7 @@ type world = {
+ 
+ export type World = {
+ 	archetype_edges: Map<number, Map<Entity, Archetype>>,
++	exclusive_back_edges: Map<number, Map<number, Entity>>,
+ 	archetype_index: { [string]: Archetype },
+ 	archetypes: Archetypes,
+ 	component_index: ComponentIndex,
+@@ -228,6 +284,9 @@ export type World = {
+ 
+ 	observable: Map<Component, Map<Component, { Observer }>>,
+ 
++	debug: boolean?,
++	magic: number?,
++
+ 	added: <T>(World, Component<T>, (e: Entity, id: Id<T>, value: T, oldarchetype: Archetype) -> ()) -> () -> (),
+ 	removed: <T>(World, Component<T>, (e: Entity, id: Id<T>, delete: boolean?) -> ()) -> () -> (),
+ 	changed: <T>(World, Component<T>, (e: Entity, id: Id<T>, value: T, oldarchetype: Archetype) -> ()) -> () -> (),
+@@ -254,14 +313,6 @@ export type World = {
+ 		index: number?
+ 	) -> Entity<unknown>?,
+ 
+-	-- Gets an iterator for all targets of a relationship.
+-	-- Returns an empty iterator if no matches are found.
+-	targets: <T>(
+-		self: World,
+-		id: Entity<T> | number,
+-		relation: ecs_entity_t<Component>
+-	) -> () -> Id,
+-
+ 	--- Deletes an entity and all it's related components and relationships.
+ 	delete: <T>(self: World, id: Entity<T>) -> (),
+ 
+@@ -293,6 +344,13 @@ export type World = {
+ 		& (<T, a, b, c>(World, Entity<T>, Component<a>, Component<b>, Component<c>) -> boolean)
+ 		& <T, a, b, c, d>(World, Entity<T>, Component<a>, Component<b>, Component<c>, Component<d>) -> boolean,
+ 
++	--- Returns an iterator for all targets of a relationship.
++	targets: <T>(
++		self: World,
++		id: Entity<T> | number,
++		relation: ecs_entity_t<Component>
++	) -> () -> Id,
++
+ 	--- Get parent (target of ChildOf relationship) for entity. If there is no ChildOf relationship pair, it will return nil.
+ 	parent: <T>(self: World, entity: Entity<T>) -> Entity?,
+ 
+@@ -349,6 +407,8 @@ export type ComponentRecord = {
+ 	flags: number,
+ 	size: number,
+ 
++	sparse: pool?,
++
+ 	on_add: (<T>(entity: Entity, id: Entity<T>, value: T, oldarchetype: Archetype) -> ())?,
+ 	on_change: (<T>(entity: Entity, id: Entity<T>, value: T, oldArchetype: Archetype) -> ())?,
+ 	on_remove: ((entity: Entity, id: Entity) -> ())?,
+@@ -358,6 +418,7 @@ export type Archetypes = { [i24]: Archetype }
+ 
+ export type EntityIndex = {
+ 	dense_array: Map<number, Entity>,
++	dense_count: number,
+ 	sparse_array: Map<i24, Record>,
+ 	alive_count: number,
+ 	max_id: number,
+@@ -374,6 +435,14 @@ local ECS_PAIR_OFFSET = 	                 2^48
+ local ECS_ID_DELETE =                 	   0b0001
+ local ECS_ID_IS_TAG =                 	   0b0010
+ local ECS_ID_IS_EXCLUSIVE =                0b0100
++local ECS_ID_HAS_BASES =                   0b1000
++local ECS_ID_DONT_FRAGMENT =              0b10000
++-- Set on a component record while world_delete's cleanup cascade is
++-- processing it (flecs: EcsIdMarkedForDelete). A re-entrant delete that
++-- reaches the same record (cyclic relations) skips it: the frame that
++-- marked it owns the cleanup.
++local ECS_ID_MARKED_FOR_DELETE =         0b100000
++local ECS_ID_MARKED_FOR_DELETE_CLEAR = bit32.bnot(ECS_ID_MARKED_FOR_DELETE)
+ local ECS_ID_MASK =                   	   0b0000
+ 
+ local HI_COMPONENT_ID =                       256
+@@ -391,10 +460,13 @@ local EcsName =              HI_COMPONENT_ID + 11
+ local EcsOnArchetypeCreate = HI_COMPONENT_ID + 12
+ local EcsOnArchetypeDelete = HI_COMPONENT_ID + 13
+ local EcsExclusive =         HI_COMPONENT_ID + 14
+-local EcsRest =              HI_COMPONENT_ID + 15
++local EcsIsA =               HI_COMPONENT_ID + 15
++local EcsDontFragment =      HI_COMPONENT_ID + 16
++local EcsRest =              HI_COMPONENT_ID + 17
+ 
+ local NULL_ARRAY = table.freeze({}) :: Column
+ local NULL = newproxy(false)
++local JECS_MAGIC_NUMBER = 0x_01_01_00
+ 
+ local ECS_INTERNAL_ERROR_INVALID_ENTITIES = [[
+ 	You tried passing a pair that has invalid entities that are either unalive
+@@ -409,6 +481,35 @@ local function ecs_assert(condition, msg: string?)
+ 	end
+ end
+ 
++local ECS_INTERNAL_ERROR_MULTIPLE_JECS_VERSIONS = [[
++	Well... looks like someone has been naughty!
++	This world was created by a different jecs module instance than the one currently being used.
++
++		> Expected v%s but got v%s.
++
++	This can happen when your project or one of its dependencies resolves to a different copy of jecs,
++	for example a patched/local version or a transitive dependency with its own pinned version.
++
++	Make sure every package resolves to the same jecs module/version, and do not pass worlds,
++	queries, or entities between helpers from different jecs copies.
++	This could be because you have a patched version of jecs that you are using that do not match with what your dependencies expect.
++
++]]
++
++local function ECS_ASSERT_VALID_VERSION(world: world)
++	local expected = JECS_MAGIC_NUMBER
++	local actual = world.magic
++
++	if actual == expected then return end
++
++	if actual > expected then
++		-- TODO(marcus): is this correct..
++		expected, actual = actual, expected
++	end
++
++	error(string.format(ECS_INTERNAL_ERROR_MULTIPLE_JECS_VERSIONS, expected, actual))
++end
++
+ local ecs_metadata: Map<i53, Map<i53, any>> = {}
+ local ecs_max_component_id = 0
+ local ecs_max_tag_id = EcsRest
+@@ -495,6 +596,14 @@ local function ECS_PAIR_SECOND(e: i53): i24
+ 	return (e - ECS_PAIR_OFFSET) % ECS_ENTITY_MASK
+ end
+ 
++local ECS_PAIR_ISA_WILDCARD = EcsWildcard + (EcsIsA * ECS_ENTITY_MASK) + ECS_PAIR_OFFSET
++
++local ECS_DEBUG_ERROR_TRAIT_IN_USE = [=[
++	Cannot change the traits of a component that is already in use as storage.
++	Traits are snapshotted when the component's storage is first created; set
++	them before the component is added to any entity.
++]=]
++
+ local function entity_index_try_get_any(
+ 	entity_index: entityindex,
+ 	entity: i53
+@@ -583,19 +692,20 @@ local function ENTITY_INDEX_NEW_ID(world: world): i53
+ 	local dense_array = entity_index.dense_array
+ 	local alive_count = entity_index.alive_count
+ 	local sparse_array = entity_index.sparse_array
+-	local max_id = entity_index.max_id
+ 	local next_count = alive_count + 1
++	local range_end = entity_index.range_end
+ 
+-	if alive_count < max_id then
+-		local id = dense_array[next_count]
+-		if id then 
++	local recycled = dense_array[next_count]
++	if recycled then
++		local recycled_index = ECS_ENTITY_T_LO(recycled)
++		local range_begin = entity_index.range_begin or 0
++		if range_end == nil or (recycled_index >= range_begin and recycled_index < range_end) then
+ 			entity_index.alive_count = next_count
+-			return id
++			return recycled
+ 		end
+ 	end
+ 
+-	local id = max_id + 1
+-	local range_end = entity_index.range_end
++	local id = entity_index.max_id + 1
+ 	ecs_assert(range_end == nil or id < range_end, ECS_INTERNAL_ERROR_INCOMPATIBLE_ENTITY)
+ 
+ 	entity_index.max_id = id
+@@ -619,6 +729,34 @@ end
+ local function query_match(query: query, archetype: archetype)
+ 	local columns_map = archetype.columns_map
+ 	local with = query.filter_with
++	local without = query.filter_without
++
++	if query.df then
++		-- Only fragmenting terms participate in archetype matching;
++		-- DontFragment terms are evaluated per entity at iteration time.
++		local component_index = query.world.component_index
++		for _, id in with do
++			local map = component_index[id]
++			if map and map.sparse then
++				continue
++			end
++			if not columns_map[id] then
++				return false
++			end
++		end
++		if without then
++			for _, id in without do
++				local map = component_index[id]
++				if map and map.sparse then
++					continue
++				end
++				if columns_map[id] then
++					return false
++				end
++			end
++		end
++		return true
++	end
+ 
+ 	for _, id in with do
+ 		if not columns_map[id] then
+@@ -626,7 +764,6 @@ local function query_match(query: query, archetype: archetype)
+ 		end
+ 	end
+ 
+-	local without = query.filter_without
+ 	if without then
+ 		for _, id in without do
+ 			if columns_map[id] then
+@@ -660,7 +797,7 @@ local function archetype_move(
+ 
+ 	local last = #src_entities
+ 	local id_types = from.types
+-	local columns_map = to.columns_map
++	local columns_map = to.owned_columns_map
+ 
+ 	if src_row ~= last then
+ 		-- If the entity is the last row in the archetype then swapping it would be meaningless.
+@@ -851,8 +988,9 @@ local function WORLD_TARGET(world: world, entity: i53, relation: i53, index: num
+ end
+ 
+ local function ECS_ID_IS_WILDCARD(e: i53): boolean
+-	local first = ECS_ENTITY_T_HI(e)
+-	local second = ECS_ENTITY_T_LO(e)
++	if not ECS_IS_PAIR(e) then return false end
++	local first = ECS_PAIR_FIRST(e)
++	local second = ECS_PAIR_SECOND(e)
+ 	return first == EcsWildcard or second == EcsWildcard
+ end
+ 
+@@ -867,6 +1005,90 @@ local function id_record_get(world: World, id: Entity): ComponentRecord?
+ 	return nil
+ end
+ 
++local function pool_create(): pool
++	return {
++		map_max = 3,
++		map = buffer.create(4 * 4),
++		capacity = 4,
++		size = 0,
++		entities = buffer.create(4 * 8),
++		values = {},
++	}
++end
++
++-- Returns the 1-based dense index of the entity, or 0 when absent (ECR's
++-- POOL_FIND: a bounds check and one buffer read). No generation validation:
++-- pools only ever hold alive entities (delete/clear sweep them), and every
++-- caller sits behind an entity-index liveness check, so a non-zero slot for
++-- ECS_ID(e) always belongs to e itself.
++local function pool_find(pool: pool, e: i53): number
++	local key = ECS_ENTITY_T_LO(e)
++	if key > pool.map_max then
++		return 0
++	end
++	return buffer.readu32(pool.map, key * 4)
++end
++
++-- Appends a new entry; the caller has verified the entity is absent.
++local function pool_insert(pool: pool, e: i53, v: any)
++	local n = pool.size + 1
++	if n > pool.capacity then
++		local capacity = pool.capacity * 2
++		local entities = buffer.create(capacity * 8)
++		buffer.copy(entities, 0, pool.entities)
++		pool.entities = entities
++		pool.capacity = capacity
++	end
++	local key = ECS_ENTITY_T_LO(e)
++	local map_max = pool.map_max
++	if key > map_max then
++		local map_capacity = map_max + 1
++		repeat
++			map_capacity *= 2
++		until key < map_capacity
++		local map = buffer.create(map_capacity * 4)
++		buffer.copy(map, 0, pool.map)
++		pool.map = map
++		pool.map_max = map_capacity - 1
++	end
++	buffer.writeu32(pool.map, key * 4, n)
++	buffer.writef64(pool.entities, (n - 1) * 8, e)
++	pool.values[n] = v
++	pool.size = n
++end
++
++local function pool_reset(pool: pool)
++	local n = pool.size
++	local map = pool.map
++	if (pool.map_max + 1) * 4 <= n * 1024 then
++		buffer.fill(map, 0, 0)
++	else
++		local entities = pool.entities
++		for i = 0, n - 1 do
++			buffer.writeu32(map, ECS_ENTITY_T_LO(buffer.readf64(entities, i * 8)) * 4, 0)
++		end
++	end
++	table.clear(pool.values)
++	pool.size = 0
++end
++
++-- Swap-removes the entity's entry at its 1-based dense index.
++local function pool_remove(pool: pool, idx: number, e: i53)
++	local map = pool.map
++	local entities = pool.entities
++	local values = pool.values
++	local n = pool.size
++	if idx ~= n then
++		local last = buffer.readf64(entities, (n - 1) * 8)
++		buffer.writef64(entities, (idx - 1) * 8, last)
++		buffer.writeu32(map, (ECS_ENTITY_T_LO(last)) * 4, idx)
++		values[idx] = values[n]
++	end
++	buffer.writeu32(map, (ECS_ENTITY_T_LO(e)) * 4, 0)
++	values[n] = nil
++	pool.size = n - 1
++end
++
+ local function id_record_create(
+ 	world: world,
+ 	component_index: Map<i53, componentrecord>,
+@@ -916,13 +1138,55 @@ local function id_record_create(
+ 		is_tag = not WORLD_HAS(world, target, EcsComponent)
+ 	end
+ 
++	local is_dont_fragment = WORLD_HAS(world, relation, EcsDontFragment)
++
++	local has_bases = false
++	if not is_pair then
++		local r_component = entity_index_try_get_any(entity_index, id)
++		if r_component then
++			local component_archetype = r_component.archetype
++			if component_archetype and component_archetype.columns_map[ECS_PAIR_ISA_WILDCARD] ~= nil then
++				has_bases = true
++			end
++		end
++	end
++
++	-- Traits are snapshotted here, at first use. Changing a trait (Component,
++	-- Exclusive, DontFragment, cleanup policies, (IsA, _) bases) after the
++	-- component's record exists is undefined: existing records keep the old
++	-- flags while later-created records (e.g. new pair targets) see the new
++	-- ones. Set traits before the component is used anywhere.
+ 	flags = bit32.bor(
+ 		flags,
+ 		if has_delete then ECS_ID_DELETE else 0,
+ 		if is_tag then ECS_ID_IS_TAG else 0,
+-		if is_exclusive then ECS_ID_IS_EXCLUSIVE else 0
++		if is_exclusive then ECS_ID_IS_EXCLUSIVE else 0,
++		if has_bases then ECS_ID_HAS_BASES else 0,
++		if is_dont_fragment then ECS_ID_DONT_FRAGMENT else 0
+ 	)
+ 
++	-- Mark the entities this record is keyed on so world_delete only pays
++	-- the wildcard-record cleanup lookups for entities they can apply to.
++	if is_pair then
++		if relation ~= EcsWildcard then
++			local r_rel = entity_index_try_get_any(entity_index, relation :: number)
++			if r_rel then
++				r_rel.cr = true
++			end
++		end
++		if target ~= EcsWildcard then
++			local r_tgt = entity_index_try_get_any(entity_index, target :: number)
++			if r_tgt then
++				r_tgt.cr = true
++			end
++		end
++	else
++		local r_id = entity_index_try_get_any(entity_index, id :: number)
++		if r_id then
++			r_id.cr = true
++		end
++	end
++
+ 	local idr = {
+ 		size = 0,
+ 		records = {},
+@@ -937,6 +1201,51 @@ local function id_record_create(
+ 
+ 	component_index[id] = idr
+ 
++	if is_pair and relation ~= EcsWildcard and target ~= EcsWildcard then
++		local wc = ECS_PAIR(ECS_PAIR_FIRST(id :: number), EcsWildcard)
++		local idr_wc = component_index[wc]
++		if not idr_wc then
++			idr_wc = id_record_create(world, component_index, wc)
++		end
++		local wc_pairs = idr_wc.wildcard_pairs
++		if wc_pairs then
++			wc_pairs[id] = idr
++		else
++			idr_wc.wildcard_pairs = { [id] = idr }
++		end
++	end
++
++	if is_dont_fragment then
++		local sparse = pool_create()
++		if is_pair and ECS_PAIR_SECOND(id :: number) == EcsWildcard then
++			-- Marks the value representation of this (R, *) target-state
++			-- pool: target bookkeeping instead of user values. When the
++			-- exclusive flag is also true it holds bare pair ids instead
++			-- of pair-id lists.
++			sparse.wc = true
++			if is_exclusive then
++				sparse.exclusive = true
++			end
++		end
++		idr.sparse = sparse
++		world.df_enabled = true
++		if is_pair and ECS_PAIR_SECOND(id :: number) ~= EcsWildcard then
++			local t = ECS_PAIR(EcsWildcard, ECS_PAIR_SECOND(id :: number))
++			local idr_t = component_index[t]
++			if not idr_t then
++				idr_t = id_record_create(world, component_index, t)
++			end
++			local df_pairs = idr_t.dont_fragment_pairs
++			if df_pairs then
++				df_pairs[id] = idr
++			else
++				idr_t.dont_fragment_pairs = { [id] = idr }
++			end
++		else
++			world.df_records[id] = idr
++		end
++	end
++
+ 	return idr
+ end
+ 
+@@ -951,6 +1260,216 @@ local function id_record_ensure(world: world, id: i53): componentrecord
+ 	return id_record_create(world, component_index, id)
+ end
+ 
++local function dont_fragment_insert(
++	world: world,
++	record: record,
++	entity: i53,
++	id: i53,
++	idr: componentrecord,
++	value: any,
++	is_set: boolean?
++)
++	local sparse = idr.sparse :: pool
++	local existing = pool_find(sparse, entity)
++
++	if existing ~= 0 then
++		-- add() on a present component is a no-op (value preserved);
++		-- set() overwrites and fires on_change.
++		if is_set then
++			sparse.values[existing] = value
++			local on_change = idr.on_change
++			if on_change then
++				on_change(entity, id, value, record.archetype)
++			end
++		end
++		return
++	end
++
++	if ECS_IS_PAIR(id) then
++		local wc = ECS_PAIR(ECS_PAIR_FIRST(id), EcsWildcard)
++		local idr_wc = world.component_index[wc]
++		local wsparse = idr_wc.sparse :: pool
++		if wsparse.exclusive then
++			local widx = pool_find(wsparse, entity)
++			if widx ~= 0 then
++				local prev = wsparse.values[widx]
++				if prev ~= id then
++					local idr_prev = world.component_index[prev]
++					local on_remove = idr_prev.on_remove
++					if on_remove then
++						on_remove(entity, prev)
++					end
++					local psparse = idr_prev.sparse :: pool
++					local pidx = pool_find(psparse, entity)
++					if pidx ~= 0 then
++						pool_remove(psparse, pidx, entity)
++					end
++				end
++				wsparse.values[widx] = id
++			else
++				pool_insert(wsparse, entity, id)
++			end
++		else
++			local widx = pool_find(wsparse, entity)
++			if widx ~= 0 then
++				table.insert(wsparse.values[widx], id)
++			else
++				pool_insert(wsparse, entity, { id })
++			end
++		end
++	end
++
++	pool_insert(sparse, entity, value)
++	record.df = true
++
++	local on_add = idr.on_add
++	if on_add then
++		on_add(entity, id, value, record.archetype)
++	end
++end
++
++local function dont_fragment_remove(
++	world: world,
++	entity: i53,
++	id: i53,
++	idr: componentrecord,
++	deleted: boolean?
++)
++	local sparse = idr.sparse :: pool
++	local idx = pool_find(sparse, entity)
++	if idx == 0 then
++		return
++	end
++
++	local on_remove = idr.on_remove
++	if on_remove then
++		on_remove(entity, id, deleted)
++		-- The hook may have mutated the pool (including removing this very
++		-- entry); re-resolve before the swap-remove.
++		idx = pool_find(sparse, entity)
++		if idx == 0 then
++			return
++		end
++	end
++
++	pool_remove(sparse, idx, entity)
++
++	if ECS_IS_PAIR(id) then
++		local wc = ECS_PAIR(ECS_PAIR_FIRST(id), EcsWildcard)
++		local idr_wc = world.component_index[wc]
++		if idr_wc then
++			local wsparse = idr_wc.sparse :: pool
++			local widx = pool_find(wsparse, entity)
++			if widx ~= 0 then
++				if wsparse.exclusive then
++					if wsparse.values[widx] == id then
++						pool_remove(wsparse, widx, entity)
++					end
++				else
++					local v = wsparse.values[widx]
++					local at = table.find(v, id)
++					if at then
++						local n = #v
++						v[at] = v[n]
++						v[n] = nil
++						if n == 1 then
++							pool_remove(wsparse, widx, entity)
++						end
++					end
++				end
++			end
++		end
++	end
++end
++
++local function dont_fragment_entity_sweep(world: world, entity: i53, deleted: boolean?)
++	local component_index = world.component_index
++	local key = ECS_ENTITY_T_LO(entity)
++	for id, idr in world.df_records do
++		local sparse = idr.sparse :: pool
++		local idx = if key > sparse.map_max then 0 else buffer.readu32(sparse.map, key * 4)
++		if idx == 0 then
++			continue
++		end
++		if ECS_IS_PAIR(id) then
++			-- (R, *) record: remove each concrete pair the entity holds.
++			local v = sparse.values[idx]
++			if sparse.exclusive then
++				local idr_p = component_index[v]
++				local psparse = idr_p.sparse :: pool
++				local pidx = if key > psparse.map_max then 0 else buffer.readu32(psparse.map, key * 4)
++				if pidx ~= 0 then
++					local on_remove = idr_p.on_remove
++					if on_remove then
++						on_remove(entity, v, deleted)
++						pidx = pool_find(psparse, entity)
++					end
++					if pidx ~= 0 then
++						pool_remove(psparse, pidx, entity)
++					end
++				end
++			else
++				for i = #v, 1, -1 do
++					local pair_id = v[i]
++					local idr_p = component_index[pair_id]
++					local psparse = idr_p.sparse :: pool
++					local pidx = if key > psparse.map_max then 0 else buffer.readu32(psparse.map, key * 4)
++					if pidx ~= 0 then
++						local on_remove = idr_p.on_remove
++						if on_remove then
++							on_remove(entity, pair_id, deleted)
++							pidx = pool_find(psparse, entity)
++						end
++						if pidx ~= 0 then
++							pool_remove(psparse, pidx, entity)
++						end
++					end
++				end
++			end
++			-- Hooks may have removed pairs re-entrantly (which maintains
++			-- this entry); re-resolve before the wholesale drop.
++			idx = pool_find(sparse, entity)
++			if idx ~= 0 then
++				pool_remove(sparse, idx, entity)
++			end
++		else
++			local on_remove = idr.on_remove
++			if on_remove then
++				on_remove(entity, id, deleted)
++				idx = pool_find(sparse, entity)
++				if idx == 0 then
++					continue
++				end
++			end
++			pool_remove(sparse, idx, entity)
++		end
++	end
++end
++
++-- Fallback lookup for get() when an id is not in the archetype: resolves
++local function dont_fragment_has(world: world, columns_map: { [i53]: Column }, entity: i53, id: i53): boolean
++	if columns_map[id] ~= nil then
++		return true
++	end
++	local idr = world.component_index[id]
++	if not idr then
++		return false
++	end
++	local sparse = idr.sparse
++	if sparse ~= nil and pool_find(sparse, entity) ~= 0 then
++		return true
++	end
++	local df_pairs = idr.dont_fragment_pairs
++	if df_pairs then
++		for _, idr_p in df_pairs do
++			if pool_find(idr_p.sparse :: pool, entity) ~= 0 then
++				return true
++			end
++		end
++	end
++	return false
++end
++
+ local function archetype_append_to_records(
+ 	idr: componentrecord,
+ 	archetype_id: number,
+@@ -963,6 +1482,10 @@ local function archetype_append_to_records(
+ 	local idr_counts = idr.counts
+ 	local tr = idr_records[archetype_id]
+ 	if not tr then
++		-- NOTE(marcus): idr.size must count every concrete archetype otherwise
++		-- a relation with multiple target sone archetype such as (pair(R,A),
++		-- pair(R,B)) over-counts
++		idr.size += 1
+ 		idr_records[archetype_id] = index
+ 		idr_counts[archetype_id] = 1
+ 		columns_map[id] = column
+@@ -973,28 +1496,81 @@ local function archetype_append_to_records(
+ 	end
+ end
+ 
++-- NOTE(marcus): We achieve zero per-access cost for inheritance by loifting the
++-- details of the derived/owned columns at the storage level.
++local function archetype_register_inherited(
++	world: world,
++	archetype: archetype,
++	derived_index: number,
++	column: Column,
++	component: i53
++)
++	local entity_index = world.entity_index
++	local r = entity_index_try_get_any(entity_index, component)
++	if not r then
++		return
++	end
++	local component_archetype = r.archetype
++	if not component_archetype then
++		return
++	end
++	local idr_isa = world.component_index[ECS_PAIR_ISA_WILDCARD]
++	if not idr_isa then
++		return
++	end
++	local component_archetype_id = component_archetype.id
++	local tr = idr_isa.records[component_archetype_id]
++	if not tr then
++		return
++	end
++	local count = idr_isa.counts[component_archetype_id]
++	local component_types = component_archetype.types
++	local columns_map = archetype.columns_map
++	local archetype_id = archetype.id
++	for i = tr, tr + count - 1 do
++		local base = entity_index_get_alive(entity_index,
++			ECS_PAIR_SECOND(component_types[i]))
++		if base and columns_map[base] == nil then
++			local idr_base = id_record_ensure(world, base)
++			if bit32.btest(idr_base.flags, ECS_ID_DONT_FRAGMENT) then
++				continue
++			end
++			archetype_append_to_records(idr_base, archetype_id,
++				columns_map, base, derived_index, column)
++			archetype_register_inherited(world, archetype,
++				derived_index, column, base)
++		end
++	end
++end
++
+ local function archetype_create(world: world, id_types: { i53 }, ty, prev: i53?): archetype
+ 	local archetype_id = (world.max_archetype_id :: number) + 1
+ 	world.max_archetype_id = archetype_id
+ 
+ 	local length = #id_types
+ 	local columns = (table.create(length) :: any) :: { Column }
++	local idrs = (table.create(length) :: any) :: { componentrecord }
+ 
+ 	local columns_map: { [i53]: Column } = {}
+ 
+ 	local archetype: archetype = {
+ 		columns = columns,
+ 		columns_map = columns_map,
++		owned_columns_map = columns_map,
+ 		entities = {},
+ 		id = archetype_id,
+ 		type = ty,
+-		types = id_types
++		types = id_types,
++		idrs = idrs
+ 	}
+ 
++	local all_flags = 0
+ 	for i, component_id in archetype.types do
+ 		local idr = id_record_ensure(world, component_id)
+-		idr.size += 1
+-		local is_tag = bit32.btest(idr.flags, ECS_ID_IS_TAG)
++		idrs[i] = idr
++		local idr_flags = idr.flags
++		all_flags = bit32.bor(all_flags, idr_flags)
++		local is_tag = bit32.btest(idr_flags, ECS_ID_IS_TAG)
+ 		local column = if is_tag then NULL_ARRAY else {}
+ 		columns[i] = column
+ 
+@@ -1007,11 +1583,10 @@ local function archetype_create(world: world, id_types: { i53 }, ty, prev: i53?)
+ 			local r = ECS_PAIR(relation, EcsWildcard)
+ 			local idr_r = id_record_ensure(world, r)
+ 
+-			idr_r.size += 1
+ 			archetype_append_to_records(idr_r, archetype_id, columns_map, r, i, column)
+-			local idr_r_wc_pairs = idr_r.wildcard_pairs
++			local idr_r_wc_pairs = idr_r.wildcard_pairs :: {[i53]: componentrecord }
+ 			if not idr_r_wc_pairs then
+-				idr_r_wc_pairs = {} :: {[i53]: componentrecord }
++				idr_r_wc_pairs = {}
+ 				idr_r.wildcard_pairs = idr_r_wc_pairs
+ 			end
+ 			idr_r_wc_pairs[component_id] = idr
+@@ -1019,16 +1594,50 @@ local function archetype_create(world: world, id_types: { i53 }, ty, prev: i53?)
+ 			local t = ECS_PAIR(EcsWildcard, object)
+ 			local idr_t = id_record_ensure(world, t)
+ 
+-			idr_t.size += 1
+ 			archetype_append_to_records(idr_t, archetype_id, columns_map, t, i, column)
+ 		end
+ 	end
+ 
++	if bit32.btest(all_flags, ECS_ID_DONT_FRAGMENT) then
++		error("archetype cannot contain a DontFragment id (use world:add/world:set)")
++	end
++
++	if bit32.btest(all_flags, ECS_ID_HAS_BASES) then
++		-- Copy-on-write: keep owned_columns_map as the owned-only view used
++		-- by the move paths and world_set, alias inherited bases in
++		-- columns_map only.
++		local component_index = world.component_index
++		local read_map = table.clone(columns_map)
++		archetype.columns_map = read_map
++		for i, component_id in id_types do
++			if not ECS_IS_PAIR(component_id) then
++				local idr = component_index[component_id]
++				if bit32.btest(idr.flags, ECS_ID_HAS_BASES) then
++					archetype_register_inherited(world, archetype,
++						i, columns[i], component_id)
++				end
++			end
++		end
++		-- Rebuild the owned view as a clone of the aliased map with the
++		-- alias keys nil'd out: table.clone preserves hash-node layout, so
++		-- world_set's owned lookups probe the same node structure as the
++		-- read map. Small owned maps otherwise keep a pre-rehash layout
++		-- whose keys can collide (measured +10% on 2-component based
++		-- archetypes); one-time cost here, none per set.
++		local owned = table.clone(read_map)
++		for id in read_map do
++			if columns_map[id] == nil then
++				owned[id] = nil
++			end
++		end
++		archetype.owned_columns_map = owned
++	end
++
+ 	world.archetype_index[ty] = archetype
+ 	world.archetypes[archetype_id] = archetype
+ 	world.archetype_edges[archetype_id] = {} :: Map<i53, archetype>
+ 
+-	for id in columns_map do
++	for id in archetype.columns_map do
+ 		local observer_list = find_observers(world, EcsOnArchetypeCreate, id)
+ 		if not observer_list then
+ 			continue
+@@ -1163,7 +1772,7 @@ local function archetype_traverse_add(
+ 	from: archetype
+ ): archetype
+ 	from = from or world.ROOT_ARCHETYPE
+-	if from.columns_map[id] then
++	if from.owned_columns_map[id] then
+ 		return from
+ 	end
+ 	local edges = world.archetype_edges
+@@ -1228,7 +1837,6 @@ local function archetype_destroy(world: world, archetype: archetype)
+ 	if archetype == world.ROOT_ARCHETYPE then
+ 		return
+ 	end
+-	-- RAII / idempotent: already destroyed or still has entities → no-op
+ 	if world.archetypes[archetype.id] ~= archetype then
+ 		return
+ 	end
+@@ -1244,6 +1852,21 @@ local function archetype_destroy(world: world, archetype: archetype)
+ 		edges[id] = nil
+ 	end
+ 
++	-- The mirror walk above cannot see one-way exclusive edges pointing INTO
++	-- this archetype; clear them via the back-edge registry so no stale edge
++	-- survives to be warm-hit through pair id recycling.
++	local exclusive_back_edges = world.exclusive_back_edges
++	local back = exclusive_back_edges[archetype.id]
++	if back then
++		for src_id, id in back do
++			local src_edges = archetype_edges[src_id]
++			if src_edges and src_edges[id] == archetype then
++				src_edges[id] = nil
++			end
++		end
++		exclusive_back_edges[archetype.id] = nil
++	end
++
+ 	local archetype_id = archetype.id
+ 	world.archetypes[archetype_id] = nil :: any
+ 	world.archetype_index[archetype.type] = nil :: any
+@@ -1269,7 +1892,8 @@ local function archetype_destroy(world: world, archetype: archetype)
+ 	end
+ end
+ 
+-local function NOOP() end
++local function NOOP()
++end
+ 
+ local function query_archetypes(query: query, override: boolean?)
+ 	local compatible_archetypes = query.compatible_archetypes
+@@ -1282,75 +1906,2824 @@ local function query_archetypes(query: query, override: boolean?)
+ 
+ 		local component_index = world.component_index
+ 
++		local df_enabled = world.df_enabled
++
+ 		local idr: componentrecord?
+ 		local with = query.filter_with
++		local df_with: { i53 }?
++		local df_union_with: { i53 }?
++		local has_recordless = false
+ 		for _, id in with do
+ 			local map = component_index[id]
+ 			if not map then
++				has_recordless = true
+ 				continue
+ 			end
+ 
++			if df_enabled and map.sparse then
++				local arr = df_with
++				if not arr then
++					arr = {}
++					df_with = arr
++				end
++				table.insert(arr :: { i53 }, id)
++				continue
++			end
++
++			-- (*, T) second-position wildcard over DontFragment pairs: a
++			-- union term. It stays fragmenting for archetype matching; the
++			-- DontFragment side is added by a second plan block at iteration.
++			if df_enabled and map.dont_fragment_pairs then
++				local arr = df_union_with
++				if not arr then
++					arr = {}
++					df_union_with = arr
++				end
++				table.insert(arr :: { i53 }, id)
++				-- Only the first union participates in archetype driving. Its
++				-- DontFragment side is covered by the union driver; remaining
++				-- unions are checked per entity by the compiled plan.
++				if #arr > 1 then
++					continue
++				end
++			end
++
+ 			if idr == nil or (map.size :: number) < (idr.size :: number) then
+ 				idr = map
+ 			end
+ 		end
+ 
+-		if idr == nil then
+-			return compatible_archetypes
++		local without = query.filter_without
++		local df_without: { i53 }?
++		local df_union_without: { i53 }?
++		if without and df_enabled then
++			for _, id in without do
++				local map = component_index[id]
++				if map and map.sparse then
++					local arr = df_without
++					if not arr then
++						arr = {}
++						df_without = arr
++					end
++					table.insert(arr :: { i53 }, id)
++				elseif map and map.dont_fragment_pairs then
++					local arr = df_union_without
++					if not arr then
++						arr = {}
++						df_union_without = arr
++					end
++					table.insert(arr :: { i53 }, id)
++				end
++			end
++			if df_without then
++				local frag_without = {}
++				for _, id in without do
++					local map = component_index[id]
++					if not (map and map.sparse) then
++						table.insert(frag_without, id)
++					end
++				end
++				without = if #frag_without > 0 then frag_without else nil
++			end
++		end
++
++		-- Only touch the DontFragment bookkeeping fields when a DontFragment
++		-- term is present (or was on a previous run); keeps plain query
++		-- creation free of extra table writes.
++		if df_enabled and (df_with ~= nil or df_without ~= nil
++			or df_union_with ~= nil or df_union_without ~= nil or query.df ~= nil) then
++			query.df = if df_with or df_without or df_union_with or df_union_without
++				then true
++				else nil
++			query.df_with = df_with
++			query.df_without = df_without
++			query.df_union_with = df_union_with
++			query.df_union_without = df_union_without
++			query.df_only = nil
++			query.df_frag_without = nil
++		end
++
++		if idr == nil then
++			if df_with and not has_recordless then
++				query.df_only = true
++				query.df_frag_without = without
++			end
++			return compatible_archetypes
++		end
++
++		local frag_with = with
++		if df_with or df_union_with then
++			frag_with = {}
++			local primary_union = if df_union_with then df_union_with[1] else 0
++			for _, id in with do
++				local map = component_index[id]
++				if not (map and map.sparse)
++					and not (map and map.dont_fragment_pairs and id ~= primary_union) then
++					table.insert(frag_with, id)
++				end
++			end
++		end
++
++		local cache = idr.cache
++		local n_cache = #cache
++		local matched = table.create(n_cache) :: { archetype }
++		compatible_archetypes = matched
++		query.compatible_archetypes = matched
++		local n_compatible = 0
++		local i = 1
++		while i <= n_cache do
++			local archetype = archetypes[cache[i]]
++			if archetype == nil then
++				cache[i] = cache[n_cache]
++				cache[n_cache] = nil
++				n_cache -= 1
++				continue
++			end
++			i += 1
++			local columns_map = archetype.columns_map
++			local skip = false
++			for _, component in frag_with do
++				if not columns_map[component] then
++					skip = true
++					break
++				end
++			end
++			if skip then
++				continue
++			end
++			if without then
++				for _, component in without do
++					if columns_map[component] then
++						skip = true
++						break
++					end
++				end
++			end
++
++			if skip then
++				continue
++			end
++
++			n_compatible += 1
++			matched[n_compatible] = archetype
++		end
++	end
++	return compatible_archetypes
++end
++
++local function query_with(query: query, ...: i53)
++	local ids = query.ids
++	local with = { ... }
++	table.move(ids, 1, #ids, #with + 1, with)
++	query.filter_with = with
++	return query
++end
++
++local function query_without(query: query, ...: i53)
++	local without = { ... }
++	query.filter_without = without
++	return query
++end
++
++-- NOTE(marcus): This is a compiler that creates a query plan that runs a VM.
++-- This is useful for various different queries such as mixed (Regular and
++-- DontFragment) and/or (*, T) union terms that match both fragmenting pairs and
++-- DontFragment pools. Currently there are no term reordering, because we want
++-- to be conservative with making heuristics in uncached complex queries,
++-- especially in possibly non-degenerate scenarios. Instead jecs honours the
++-- user-provided term order which can be trivially solved through benchmarking
++-- on their own.
++local OP_ARCHETYPES 	= 1 -- driver: rows of compatible archetypes
++local OP_POOL 			= 2 -- driver: dense entities of a pool
++local OP_UNION 			= 3 -- driver: dense entities of every (R, T) pool of a (*, T) term
++local OP_RESOLVE 		= 4 -- entity record -> row + columns_map
++local OP_DF_FETCH 		= 5 -- pool probe: fail on miss, fetch value
++local OP_DF_CHECK 		= 6 -- pool probe: fail on miss
++local OP_DF_NOT		 	= 7 -- pool probe: fail on hit
++local OP_COL_FETCH 		= 8 -- columns_map probe: fail on miss, fetch column value
++local OP_COL_CHECK	 	= 9 -- columns_map probe: fail on miss
++local OP_COL_NOT 		= 10 -- columns_map probe: fail on hit
++local OP_WC_FETCH 		= 11 -- (R, *) wildcard value resolve (never fails)
++local OP_UNION_NOT 		= 12 -- fail if any (R, T) pool holds the entity
++local OP_UNION_DEDUPE 	= 13 -- skip entities already yielded from earlier pools
++local OP_UNION_FETCH 	= 14 -- fragmenting column or any (R, T) DontFragment pool
++
++type queryop = {
++	kind: number,
++	on_ok: number, -- op index; -1 = yield
++	on_fail: number, -- op index; 0 = done
++	id: i53,
++	k: number, -- output position, 0 = none
++	pool: pool?,
++	pools: { pool }?,
++
++	-- Per-op archetype memo for columns_map probes which utilizes the fact that
++	-- previous archetype/column usually share an archetype so a pointer compare
++	-- replaces a check into the map.
++	pa: archetype?,
++	pc: Column?,
++}
++
++local function query_iter_df_plan(query: query): () -> (i53, ...any)
++	local world = query.world
++	local component_index = world.component_index
++	local sparse_array = world.entity_index.sparse_array
++	local ids = query.ids
++	local n_ids = #ids
++	local output = table.create(n_ids)
++	local compatible = query.compatible_archetypes
++
++	local df_union_with = query.df_union_with
++	-- The first union partitions the archetype and DontFragment drivers. All
++	-- other unions are checked against both storage kinds by the plan.
++	local id3: i53 = if df_union_with then df_union_with[1] else 0
++
++	local function record_pool(id: i53): pool?
++		local idr = component_index[id]
++		return if idr then idr.sparse else nil
++	end
++	local function union_pools_of(id: i53): { pool }
++		local arr = {}
++		local idr = component_index[id]
++		local df_pairs = if idr then idr.dont_fragment_pairs else nil
++		if df_pairs then
++			for _, idr_p in df_pairs do
++				table.insert(arr, idr_p.sparse :: pool)
++			end
++		end
++		return arr
++	end
++	-- (R, *) wildcard value resolver; such ids never appear in archetype
++	-- columns (their relation is DontFragment), so no columns_map shortcut.
++	local function plan_wc_fetch(id: i53, ent: i53): any
++		local idr = component_index[id]
++		local sparse = if idr then idr.sparse else nil
++		if not sparse then
++			return nil
++		end
++		local idx = pool_find(sparse, ent)
++		if idx == 0 then
++			return nil
++		end
++		local v = sparse.values[idx]
++		local pair_id = if sparse.exclusive then v else v[1]
++		local psparse = component_index[pair_id].sparse :: pool
++		local pidx = pool_find(psparse, ent)
++		return if pidx ~= 0 then psparse.values[pidx] else nil
++	end
++
++	local arr3: { pool }? = if id3 ~= 0 then union_pools_of(id3) else nil
++	if arr3 and #arr3 == 0 then
++		arr3 = nil
++	end
++	local union_pools: { [i53]: { pool } } = {}
++	if df_union_with then
++		for _, id in df_union_with do
++			union_pools[id] = union_pools_of(id)
++		end
++	end
++
++	-- Primary driver from the first term (no reordering): a plain
++	-- DontFragment first term pool-drives, otherwise archetypes drive.
++	-- df_only queries routed here (union withouts) pool-drive from the
++	-- first pooled term.
++	local pool2: pool?
++	local out2 = 0
++	local cov2: i53 = 0
++	do
++		local id1 = ids[1]
++		local idr1 = if id1 then component_index[id1] else nil
++		local sp1 = if idr1 then idr1.sparse else nil
++		if sp1 and not (ECS_IS_PAIR(id1) and ECS_PAIR_SECOND(id1) == EcsWildcard) then
++			pool2 = sp1
++			out2 = 1
++			cov2 = id1
++		elseif query.df_only then
++			for k = 1, n_ids do
++				local id = ids[k]
++				local sp = record_pool(id)
++				if sp then
++					pool2 = sp
++					cov2 = id
++					if not (ECS_IS_PAIR(id) and ECS_PAIR_SECOND(id) == EcsWildcard) then
++						out2 = k
++					end
++					break
++				end
++			end
++			if pool2 == nil then
++				local dfw = query.df_with :: { i53 }
++				pool2 = record_pool(dfw[1])
++				cov2 = dfw[1]
++			end
++		end
++	end
++
++	local ops: { queryop } = {}
++	local n_ops = 0
++	local function push(kind: number, id: i53, k: number, p: pool?, pools: { pool }?)
++		n_ops += 1
++		ops[n_ops] = { kind = kind, on_ok = 0, on_fail = 0, id = id, k = k, pool = p, pools = pools }
++	end
++
++	local queried: { [i53]: boolean } = {}
++	for k = 1, n_ids do
++		queried[ids[k]] = true
++	end
++
++	local function compile_block(driver_kind: number): number
++		local blk0 = n_ops + 1
++		if driver_kind == OP_ARCHETYPES then
++			push(OP_ARCHETYPES, 0, 0, nil, nil)
++		elseif driver_kind == OP_POOL then
++			push(OP_POOL, cov2, out2, pool2, nil)
++		else
++			local out3 = if queried[id3] then table.find(ids, id3) :: number else 0
++			push(OP_UNION, id3, out3, nil, arr3)
++		end
++		-- out2/cov2 describe the POOL driver only; the union block's driver
++		-- covers nothing but the union term itself, so every other term must
++		-- be checked/fetched again there.
++		local out0 = if driver_kind == OP_POOL then out2 else 0
++		local cov0 = if driver_kind == OP_POOL then cov2 else 0
++		local pool_driven = driver_kind ~= OP_ARCHETYPES
++		local resolved = false
++		local function need_resolve()
++			if pool_driven and not resolved then
++				resolved = true
++				push(OP_RESOLVE, 0, 0, nil, nil)
++			end
++		end
++		if driver_kind == OP_UNION then
++			-- NOTE(marcus): We need to deduplicate entities that carry an ID
++			-- that stores two storages simulataneosuly from a previous pool pass.
++			need_resolve()
++			push(OP_COL_NOT, id3, 0, nil, nil)
++			push(OP_UNION_DEDUPE, 0, 0, nil, arr3)
++		end
++		for k = 1, n_ids do
++			local id = ids[k]
++			if k == out0 or (driver_kind == OP_UNION and id == id3) then
++				continue
++			end
++			local union = union_pools[id]
++			local sp = record_pool(id)
++			if union then
++				need_resolve()
++				push(OP_UNION_FETCH, id, k, nil, union)
++			elseif sp then
++				if ECS_IS_PAIR(id) and ECS_PAIR_SECOND(id) == EcsWildcard then
++					if id ~= cov0 then
++						push(OP_DF_CHECK, id, 0, sp, nil)
++					end
++					push(OP_WC_FETCH, id, k, nil, nil)
++				else
++					push(OP_DF_FETCH, id, k, sp, nil)
++				end
++			else
++				need_resolve()
++				push(OP_COL_FETCH, id, k, nil, nil)
++			end
++		end
++
++		local df_with = query.df_with
++		if df_with then
++			for _, id in df_with do
++				if not queried[id] and id ~= cov0 then
++					push(OP_DF_CHECK, id, 0, record_pool(id), nil)
++				end
++			end
++		end
++
++		for _, id in query.filter_with do
++			if not queried[id] and id ~= cov0 then
++				local union = union_pools[id]
++				if union and not (driver_kind == OP_UNION and id == id3) then
++					-- The union driver already proves id3. Other unions must
++					-- match either an archetype column or DontFragment pool.
++					need_resolve()
++					push(OP_UNION_FETCH, id, 0, nil, union)
++				elseif pool_driven and not union then
++					local idr = component_index[id]
++					if not (idr and idr.sparse) then
++						need_resolve()
++						push(OP_COL_CHECK, id, 0, nil, nil)
++					end
++				end
++			end
++		end
++
++		local filter_without = query.filter_without
++		if filter_without then
++			for _, id in filter_without do
++				local idr = component_index[id]
++				local sp = if idr then idr.sparse else nil
++				if sp then
++					push(OP_DF_NOT, id, 0, sp, nil)
++				elseif idr and idr.dont_fragment_pairs then
++					if pool_driven then
++						need_resolve()
++						push(OP_COL_NOT, id, 0, nil, nil)
++					end
++					push(OP_UNION_NOT, id, 0, nil, union_pools_of(id))
++				elseif pool_driven then
++					need_resolve()
++					push(OP_COL_NOT, id, 0, nil, nil)
++				end
++			end
++		end
++		for j = blk0, n_ops do
++			ops[j].on_ok = j + 1
++			ops[j].on_fail = blk0
++		end
++		ops[n_ops].on_ok = -1
++		return blk0
++	end
++
++	local blk1 = compile_block(if pool2 then OP_POOL else OP_ARCHETYPES)
++	local blk2 = 0
++	if arr3 and not pool2 then
++		blk2 = compile_block(OP_UNION)
++		ops[blk2].on_fail = 0
++	end
++	ops[blk1].on_fail = if blk2 ~= 0 then blk2 else 0
++
++
++	local e 	= 0
++	local key 	= 0
++	local row 	= 0
++	local cm 	= NULL_ARRAY :: { [i53]: Column }
++
++	-- NOTE(marcus): we define different registers depending on the suffix.
++	--  0 - is the resolved archetype
++	--  1 - driven by archetype
++	--  2 - driven by pool
++	--  3 - driven by union
++	-- Unsuffixed registers (e/key/row/cm) hold the current row; whichever
++    -- driver is active writes into them each step.
++    -- ip/rp refers to the OP program counter and resumption points.
++
++	local arc0: archetype? 	= nil
++	local ent0: { i53 }? 	= nil
++	local row0 				= 0
++	local cur1 				= 0
++	local row1 				= 0
++	local ent1 				= NULL_ARRAY :: { i53 }
++	local cm1  				= NULL_ARRAY :: { [i53]: Column }
++	local row2 				= if pool2 then (pool2 :: pool).size else 0 -- backward dense cursor
++	local ent2 				= if pool2 then (pool2 :: pool).entities else nil
++	local val2 				= if pool2 then (pool2 :: pool).values else nil
++	local cur3 				= 0
++	local row3 				= 0
++	local ent3: buffer? 	= nil
++	local val3: { any }? 	= nil
++	local src3 				= 0
++	local rp 				= 1
++	local ip 				= 1
++
++	local function it(): any
++		while true do
++			local op = ops[ip]
++			local kind = op.kind
++			local ok: boolean
++			if kind == OP_POOL then
++				local i2 = row2
++				if i2 < 1 then
++					ok = false
++				else
++					local j2 = i2 - 1
++					row2 = j2
++					e = buffer.readf64(ent2 :: buffer, j2 * 8)
++					key = ECS_ENTITY_T_LO(e)
++					local k = op.k
++					if k ~= 0 then
++						output[k] = (val2 :: { any })[i2]
++					end
++					rp = ip
++					ok = true
++				end
++			elseif kind == OP_ARCHETYPES then
++				ok = false
++				while true do
++					if row1 > 0 then
++						e = ent1[row1]
++						key = ECS_ENTITY_T_LO(e)
++						row = row1
++						cm = cm1
++						row1 -= 1
++						rp = ip
++						ok = true
++						break
++					end
++					cur1 += 1
++					local a = compatible[cur1]
++					if a == nil then
++						break
++					end
++					ent1 = a.entities
++					row1 = #ent1
++					cm1 = a.columns_map
++					arc0 = a
++				end
++			elseif kind == OP_UNION then
++				ok = false
++				local pools = op.pools :: { pool }
++				while true do
++					local i2 = row3
++					if i2 >= 1 then
++						local j2 = i2 - 1
++						row3 = j2
++						e = buffer.readf64(ent3 :: buffer, j2 * 8)
++						key = ECS_ENTITY_T_LO(e)
++						local k = op.k
++						if k ~= 0 then
++							output[k] = (val3 :: { any })[i2]
++						end
++						src3 = cur3
++						rp = ip
++						ok = true
++						break
++					end
++					cur3 += 1
++					local p = pools[cur3]
++					if p == nil then
++						break
++					end
++					ent3 = p.entities
++					val3 = p.values
++					row3 = p.size
++				end
++			elseif kind == OP_RESOLVE then
++				-- NOTE(marcus): if the previous entity that was processed in
++				-- the resolved archetype at row N, there is a good chance that
++				-- this entity lives in the same archetype at row N-1. Because a
++				-- pool (or archetype) driver walks entities in a fairly stable
++				-- order, and entities that were created/moved around often end
++				-- up adjacent to each other in the same archetype's dense row
++				-- array too. We are making a bet on its correlation. In a case
++				-- of misprediction it just falls back to the real lookup.
++				local pr0 = row0 - 1
++				local en0 = ent0
++				if en0 ~= nil and pr0 >= 1 and en0[pr0] == e then
++					row0 = pr0
++					row = pr0
++				else
++					local r = sparse_array[key]
++					row = r.row
++					row0 = row
++					local a = r.archetype
++					if a ~= arc0 then
++						arc0 = a
++						cm = a.columns_map
++						ent0 = a.entities
++					end
++				end
++				ok = true
++			elseif kind == OP_DF_FETCH then
++				local p = op.pool :: pool
++				local idx = if key > p.map_max then 0 else buffer.readu32(p.map, key * 4)
++				if idx == 0 then
++					ok = false
++				else
++					output[op.k] = p.values[idx]
++					ok = true
++				end
++			elseif kind == OP_DF_CHECK then
++				local p = op.pool :: pool
++				ok = key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0
++			elseif kind == OP_DF_NOT then
++				local p = op.pool :: pool
++				ok = key > p.map_max or buffer.readu32(p.map, key * 4) == 0
++			elseif kind == OP_COL_FETCH then
++				if op.pa ~= arc0 then
++					op.pa = arc0
++					op.pc = cm[op.id]
++				end
++				local column = op.pc
++				if column == nil then
++					ok = false
++				else
++					output[op.k] = column[row]
++					ok = true
++				end
++			elseif kind == OP_COL_CHECK then
++				if op.pa ~= arc0 then
++					op.pa = arc0
++					op.pc = cm[op.id]
++				end
++				ok = op.pc ~= nil
++			elseif kind == OP_COL_NOT then
++				if op.pa ~= arc0 then
++					op.pa = arc0
++					op.pc = cm[op.id]
++				end
++				ok = op.pc == nil
++			elseif kind == OP_WC_FETCH then
++				output[op.k] = plan_wc_fetch(op.id, e)
++				ok = true
++			elseif kind == OP_UNION_NOT then
++				ok = true
++				for _, p in op.pools :: { pool } do
++					if key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0 then
++						ok = false
++						break
++					end
++				end
++			elseif kind == OP_UNION_FETCH then
++				if op.pa ~= arc0 then
++					op.pa = arc0
++					op.pc = cm[op.id]
++				end
++				local column = op.pc
++				if column then
++					if op.k ~= 0 then
++						output[op.k] = column[row]
++					end
++					ok = true
++				else
++					ok = false
++					for _, p in op.pools :: { pool } do
++						local idx = if key > p.map_max then 0 else buffer.readu32(p.map, key * 4)
++						if idx ~= 0 then
++							if op.k ~= 0 then
++								output[op.k] = p.values[idx]
++							end
++							ok = true
++							break
++						end
++					end
++				end
++			else -- OP_UNION_DEDUPE
++				ok = true
++				local pools = op.pools :: { pool }
++				for j = 1, src3 - 1 do
++					local p = pools[j]
++					if key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0 then
++						ok = false
++						break
++					end
++				end
++			end
++			local nxt = if ok then op.on_ok else op.on_fail
++			if nxt > 0 then
++				ip = nxt
++			elseif nxt == -1 then
++				ip = rp
++				if n_ids == 1 then
++					return e, output[1]
++				elseif n_ids == 2 then
++					return e, output[1], output[2]
++				elseif n_ids == 3 then
++					return e, output[1], output[2], output[3]
++				elseif n_ids == 4 then
++					return e, output[1], output[2], output[3], output[4]
++				end
++				return e, unpack(output, 1, n_ids)
++			else
++				ip = rp
++				return nil
++			end
++		end
++	end
++	query.next = it
++	return it
++end
++
++local function query_iter_df_init(query: query): () -> (i53, ...any)
++	local world = query.world
++	local component_index = world.component_index
++	local ids = query.ids
++	local n_ids = #ids
++
++	-- (*, T) union terms always take the compiled plan (two blocks).
++	if query.df_union_with ~= nil or query.df_union_without ~= nil then
++		return query_iter_df_plan(query)
++	end
++
++	local df_with = query.df_with :: { i53 }
++	local df_without = query.df_without
++
++	-- NOTE(marcsu): This is a slower resolver of values for (R, &) DF terms.
++	-- The only id kind whose value cannot come from a pool probe because the
++	-- wildcard pool holds target bookeeping.
++	local function fetch_value(id: i53, e: i53): any
++		-- NOTE(marcus): The query terms are ensured at derive as due to our
++		-- work to mitigate edge cases at uncached queries.
++		local sparse = component_index[id].sparse :: pool
++		local idx = pool_find(sparse, e)
++		local v = sparse.values[idx]
++		if ECS_IS_PAIR(id) and ECS_PAIR_SECOND(id) == EcsWildcard then
++			local pair_id = if sparse.exclusive then v else v[1]
++			local psparse = component_index[pair_id].sparse :: pool
++			local pidx = pool_find(psparse, e)
++			v = if pidx ~= 0 then psparse.values[pidx] else nil
++		end
++		return v
++	end
++
++	local output = table.create(n_ids)
++
++	-- NOTE(marcus): We want to avoid re-checking every row. In order to do this
++	-- we must decide how to fetch each id once, at plan time. Because a plain
++	-- DontFragment id's pool proves presence, thereby the same read hands
++	-- back the dense value index for free without a second pass for membership,
++	-- and valueless entries just come back as nil. (R, *) pairs are a bit more
++	-- complicated as they have no pool of their own to probe because the
++	-- DontFragment flag lives in the relation record, not the wildcard one so
++	-- those have to fall to the slow resolver. Everything else is considered a
++	-- regular ID, i.e. corresponds to a standard archetype column.
++	local plan_pool 	= {} :: { [number]: pool }
++	local planned  		= {} :: { [i53]: boolean }
++	-- `k` stands for the position of the term in the query's parameters list.
++	local df_ks 		= {} :: { number } -- queried plain DontFragment ids (fused check+fetch)
++	local wc_ks 		= {} :: { number } -- queried (R, *) DontFragment wildcards (slow resolver)
++	local col_ks		= {} :: { number } -- fragmenting ids (column fetch)
++	local n_df_ks 		= 0
++	local n_wc_ks 		= 0
++	local n_col_ks 		= 0
++
++	for k = 1, n_ids do
++		local id = ids[k]
++		local idr = component_index[id]
++		local sp = idr and idr.sparse
++		if sp then
++			if ECS_IS_PAIR(id) and ECS_PAIR_SECOND(id) == EcsWildcard then
++				n_wc_ks += 1
++				wc_ks[n_wc_ks] = k
++			else
++				n_df_ks += 1
++				df_ks[n_df_ks] = k
++				plan_pool[k] = sp
++				planned[id] = true
++			end
++		else
++			n_col_ks += 1
++			col_ks[n_col_ks] = k
++		end
++	end
++
++	-- Presence-only checks: DontFragment with-terms whose value the plan
++	-- above does not already fetch (wildcards and non-queried withs).
++	local check_pools: { pool }?
++	if df_with then
++		local arr = {}
++		local n_arr = 0
++		for _, id in df_with do
++			if not planned[id] then
++				local idr_c = component_index[id]
++				if not idr_c then
++					return NOOP :: any
++				end
++				n_arr += 1
++				arr[n_arr] = idr_c.sparse :: pool
++			end
++		end
++		if n_arr > 0 then
++			check_pools = arr
++		end
++	end
++	local without_pools: { pool }?
++	if df_without then
++		local arr = {}
++		local n_arr = 0
++		for _, id in df_without do
++			local idr_c = component_index[id]
++			if idr_c then
++				n_arr += 1
++				arr[n_arr] = idr_c.sparse :: pool
++			end
++		end
++		if n_arr > 0 then
++			without_pools = arr
++		end
++	end
++
++	local has_wcs = n_wc_ks > 0
++	local single_df_k: number = if n_df_ks == 1 then df_ks[1] else 0
++	local single_df_pool: pool? = if n_df_ks == 1 then plan_pool[df_ks[1]] else nil
++	local single_check: pool? = if check_pools and #check_pools == 1
++		then check_pools[1]
++		else nil
++	local single_without: pool? = if without_pools and #without_pools == 1
++		then without_pools[1]
++		else nil
++
++	local sdf_map: buffer, sdf_max: number, sdf_values: { any }
++	if single_df_pool then
++		sdf_map = single_df_pool.map
++		sdf_max = single_df_pool.map_max
++		sdf_values = single_df_pool.values
++	end
++	local sc_map: buffer, sc_max: number
++	if single_check then
++		sc_map = single_check.map
++		sc_max = single_check.map_max
++	end
++	local swo_map: buffer, swo_max: number
++	if single_without then
++		swo_map = single_without.map
++		swo_max = single_without.map_max
++	end
++
++	if query.df_only then
++		local src: pool?
++		local s_pos = 0
++		for j = 1, n_df_ks do
++			local k = df_ks[j]
++			local sp = plan_pool[k]
++			if src == nil or sp.size < (src :: pool).size then
++				src = sp
++				s_pos = k
++			end
++		end
++		if src == nil then
++			for _, id in df_with do
++				local sp = component_index[id].sparse :: pool
++				if src == nil or sp.size < (src :: pool).size then
++					src = sp
++				end
++			end
++		end
++		local src_pool = src :: pool
++		local src_entities = src_pool.entities
++		local src_values = src_pool.values
++		local n = src_pool.size
++
++		local frag_without = query.df_frag_without
++		local sparse_array = world.entity_index.sparse_array
++
++		if check_pools == nil and without_pools == nil and frag_without == nil then
++			if single_df_pool == src_pool and n_ids == 1 then
++				local function it(): any
++					local i = n
++					if i < 1 then
++						return nil
++					end
++					local j = i - 1
++					n = j
++					return buffer.readf64(src_entities, j * 8), src_values[i]
++				end
++				query.next = it
++				return it
++			elseif n_ids == 2 and n_df_ks == 2 then
++				if s_pos == 1 then
++					local other = plan_pool[2]
++					local other_map = other.map
++					local other_max = other.map_max
++					local other_values = other.values
++					local function it(): any
++						for i = n, 1, -1 do
++							local j = i - 1
++							local e = buffer.readf64(src_entities, j * 8)
++							local key = ECS_ENTITY_T_LO(e)
++							local idx = if key > other_max then 0 else buffer.readu32(other_map, key * 4)
++							if idx == 0 then
++								continue
++							end
++							n = j
++							return e, src_values[i], other_values[idx]
++						end
++						n = 0
++						return nil
++					end
++					query.next = it
++					return it
++				end
++				local other = plan_pool[1]
++				local other_map = other.map
++				local other_max = other.map_max
++				local other_values = other.values
++				local function it(): any
++					for i = n, 1, -1 do
++						local j = i - 1
++						local e = buffer.readf64(src_entities, j * 8)
++						local key = ECS_ENTITY_T_LO(e)
++						local idx = if key > other_max then 0 else buffer.readu32(other_map, key * 4)
++						if idx == 0 then
++							continue
++						end
++						n = j
++						return e, other_values[idx], src_values[i]
++					end
++					n = 0
++					return nil
++				end
++				query.next = it
++				return it
++			elseif n_ids == 3 and n_df_ks == 3 then
++				if s_pos == 1 then
++					local pool2 = plan_pool[2]
++					local map2 = pool2.map
++					local max2 = pool2.map_max
++					local values2 = pool2.values
++					local pool3 = plan_pool[3]
++					local map3 = pool3.map
++					local max3 = pool3.map_max
++					local values3 = pool3.values
++					local function it(): any
++						for i = n, 1, -1 do
++							local j = i - 1
++							local e = buffer.readf64(src_entities, j * 8)
++							local key = ECS_ENTITY_T_LO(e)
++							local idx2 = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++							if idx2 == 0 then
++								continue
++							end
++							local idx3 = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++							if idx3 == 0 then
++								continue
++							end
++							n = j
++							return e, src_values[i], values2[idx2], values3[idx3]
++						end
++						n = 0
++						return nil
++					end
++					query.next = it
++					return it
++				end
++				local pool2 = plan_pool[1]
++				local map2 = pool2.map
++				local max2 = pool2.map_max
++				local values2 = pool2.values
++				local pool3 = plan_pool[if s_pos == 3 then 2 else 3]
++				local map3 = pool3.map
++				local max3 = pool3.map_max
++				local values3 = pool3.values
++				local function it(): any
++					for i = n, 1, -1 do
++						local j = i - 1
++						local e = buffer.readf64(src_entities, j * 8)
++						local key = ECS_ENTITY_T_LO(e)
++						local idx2 = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++						if idx2 == 0 then
++							continue
++						end
++						local idx3 = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++						if idx3 == 0 then
++							continue
++						end
++						n = j
++						if s_pos == 2 then
++							return e, values2[idx2], src_values[i], values3[idx3]
++						end
++						return e, values2[idx2], values3[idx3], src_values[i]
++					end
++					n = 0
++					return nil
++				end
++				query.next = it
++				return it
++			elseif n_ids == 4 and n_df_ks == 4 then
++				if s_pos == 1 then
++					local pool2 = plan_pool[2]
++					local map2 = pool2.map
++					local max2 = pool2.map_max
++					local values2 = pool2.values
++					local pool3 = plan_pool[3]
++					local map3 = pool3.map
++					local max3 = pool3.map_max
++					local values3 = pool3.values
++					local pool4 = plan_pool[4]
++					local map4 = pool4.map
++					local max4 = pool4.map_max
++					local values4 = pool4.values
++					local function it(): any
++						for i = n, 1, -1 do
++							local j = i - 1
++							local e = buffer.readf64(src_entities, j * 8)
++							local key = ECS_ENTITY_T_LO(e)
++							local idx2 = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++							if idx2 == 0 then
++								continue
++							end
++							local idx3 = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++							if idx3 == 0 then
++								continue
++							end
++							local idx4 = if key > max4 then 0 else buffer.readu32(map4, key * 4)
++							if idx4 == 0 then
++								continue
++							end
++							n = j
++							return e, src_values[i], values2[idx2], values3[idx3], values4[idx4]
++						end
++						n = 0
++						return nil
++					end
++					query.next = it
++					return it
++				end
++				local pool2 = plan_pool[1]
++				local map2 = pool2.map
++				local max2 = pool2.map_max
++				local values2 = pool2.values
++				local pool3 = plan_pool[if s_pos <= 2 then 3 else 2]
++				local map3 = pool3.map
++				local max3 = pool3.map_max
++				local values3 = pool3.values
++				local pool4 = plan_pool[if s_pos == 4 then 3 else 4]
++				local map4 = pool4.map
++				local max4 = pool4.map_max
++				local values4 = pool4.values
++				local function it(): any
++					for i = n, 1, -1 do
++						local j = i - 1
++						local e = buffer.readf64(src_entities, j * 8)
++						local key = ECS_ENTITY_T_LO(e)
++						local idx2 = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++						if idx2 == 0 then
++							continue
++						end
++						local idx3 = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++						if idx3 == 0 then
++							continue
++						end
++						local idx4 = if key > max4 then 0 else buffer.readu32(map4, key * 4)
++						if idx4 == 0 then
++							continue
++						end
++						n = j
++						if s_pos == 2 then
++							return e, values2[idx2], src_values[i], values3[idx3], values4[idx4]
++						elseif s_pos == 3 then
++							return e, values2[idx2], values3[idx3], src_values[i], values4[idx4]
++						end
++						return e, values2[idx2], values3[idx3], values4[idx4], src_values[i]
++					end
++					n = 0
++					return nil
++				end
++				query.next = it
++				return it
++			end
++		end
++
++		if n_ids >= 5 then
++			local function slot(k: number): (number, buffer, number, { any }, i53)
++				if k > n_ids then
++					return 0, nil :: any, nil :: any, nil :: any, nil :: any
++				end
++				local p = plan_pool[k]
++				if p == src_pool then
++					return 2, nil :: any, nil :: any, nil :: any, nil :: any
++				elseif p then
++					return 1, p.map, p.map_max, p.values, nil :: any
++				end
++				return 3, nil :: any, nil :: any, nil :: any, ids[k]
++			end
++			local kind1, map1, max1, values1, id1 = slot(1)
++			local kind2, map2, max2, values2, id2 = slot(2)
++			local kind3, map3, max3, values3, id3 = slot(3)
++			local kind4, map4, max4, values4, id4 = slot(4)
++			local kind5, map5, max5, values5, id5 = slot(5)
++			local kind6, map6, max6, values6, id6 = slot(6)
++			local kind7, map7, max7, values7, id7 = slot(7)
++			local kind8, map8, max8, values8, id8 = slot(8)
++			local sp_probe_out: { number } = NULL_ARRAY :: any
++			local sp_pools: { pool } = NULL_ARRAY :: any
++			local sp_vals: { { any } } = NULL_ARRAY :: any
++			local sp_src_out: { number } = NULL_ARRAY :: any
++			local sp_fetch_out: { number } = NULL_ARRAY :: any
++			local sp_fetch_ids: { i53 } = NULL_ARRAY :: any
++			local n_sp_probe = 0
++			local n_sp_src = 0
++			local n_sp_fetch = 0
++			if n_ids > 8 then
++				sp_probe_out = {}
++				sp_pools = {}
++				sp_vals = {}
++				sp_src_out = {}
++				sp_fetch_out = {}
++				sp_fetch_ids = {}
++				for k = 9, n_ids do
++					local p = plan_pool[k]
++					if p == src_pool then
++						n_sp_src += 1
++						sp_src_out[n_sp_src] = k - 8
++					elseif p then
++						n_sp_probe += 1
++						sp_probe_out[n_sp_probe] = k - 8
++						sp_pools[n_sp_probe] = p
++						sp_vals[n_sp_probe] = p.values
++					else
++						n_sp_fetch += 1
++						sp_fetch_out[n_sp_fetch] = k - 8
++						sp_fetch_ids[n_sp_fetch] = ids[k]
++					end
++				end
++			end
++
++			local function it(): any
++				for i = n, 1, -1 do
++					local i0 = i - 1
++					local e = buffer.readf64(src_entities, i0 * 8)
++					local key = ECS_ENTITY_T_LO(e)
++
++					local v1, v2, v3, v4, v5, v6, v7, v8
++					if kind1 == 1 then
++						local idx = if key > max1 then 0 else buffer.readu32(map1, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v1 = values1[idx]
++					end
++					if kind2 == 1 then
++						local idx = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v2 = values2[idx]
++					end
++					if kind3 == 1 then
++						local idx = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v3 = values3[idx]
++					end
++					if kind4 == 1 then
++						local idx = if key > max4 then 0 else buffer.readu32(map4, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v4 = values4[idx]
++					end
++					if kind5 == 1 then
++						local idx = if key > max5 then 0 else buffer.readu32(map5, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v5 = values5[idx]
++					end
++					if kind6 == 1 then
++						local idx = if key > max6 then 0 else buffer.readu32(map6, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v6 = values6[idx]
++					end
++					if kind7 == 1 then
++						local idx = if key > max7 then 0 else buffer.readu32(map7, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v7 = values7[idx]
++					end
++					if kind8 == 1 then
++						local idx = if key > max8 then 0 else buffer.readu32(map8, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v8 = values8[idx]
++					end
++					local ok = true
++					for j = 1, n_sp_probe do
++						local p = sp_pools[j]
++						local idx = if key > p.map_max then 0 else buffer.readu32(p.map, key * 4)
++						if idx == 0 then
++							ok = false
++							break
++						end
++						output[sp_probe_out[j]] = sp_vals[j][idx]
++					end
++					if not ok then
++						continue
++					end
++					if sc_map then
++						if key > sc_max or buffer.readu32(sc_map, key * 4) == 0 then
++							continue
++						end
++					elseif check_pools then
++						for _, p in check_pools :: { pool } do
++							if key > p.map_max or buffer.readu32(p.map, key * 4) == 0 then
++								ok = false
++								break
++							end
++						end
++						if not ok then
++							continue
++						end
++					end
++					if swo_map then
++						if key <= swo_max and buffer.readu32(swo_map, key * 4) ~= 0 then
++							continue
++						end
++					elseif without_pools then
++						for _, p in without_pools :: { pool } do
++							if key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0 then
++								ok = false
++								break
++							end
++						end
++						if not ok then
++							continue
++						end
++					end
++					if frag_without then
++						local fw = frag_without :: { i53 }
++						local r = sparse_array[key]
++						local columns_map = r.archetype.columns_map
++						local skip = false
++						for _, id in fw do
++							if columns_map[id] then
++								skip = true
++								break
++							end
++						end
++						if skip then
++							continue
++						end
++					end
++					if n_ids == 0 then
++						n = i0
++						return e
++					end
++					if kind1 == 2 then
++						v1 = src_values[i]
++					elseif kind1 == 3 then
++						v1 = fetch_value(id1, e)
++					end
++					if kind2 == 2 then
++						v2 = src_values[i]
++					elseif kind2 == 3 then
++						v2 = fetch_value(id2, e)
++					end
++					if kind3 == 2 then
++						v3 = src_values[i]
++					elseif kind3 == 3 then
++						v3 = fetch_value(id3, e)
++					end
++					if kind4 == 2 then
++						v4 = src_values[i]
++					elseif kind4 == 3 then
++						v4 = fetch_value(id4, e)
++					end
++					if kind5 == 2 then
++						v5 = src_values[i]
++					elseif kind5 == 3 then
++						v5 = fetch_value(id5, e)
++					end
++					if kind6 == 2 then
++						v6 = src_values[i]
++					elseif kind6 == 3 then
++						v6 = fetch_value(id6, e)
++					end
++					if kind7 == 2 then
++						v7 = src_values[i]
++					elseif kind7 == 3 then
++						v7 = fetch_value(id7, e)
++					end
++					if kind8 == 2 then
++						v8 = src_values[i]
++					elseif kind8 == 3 then
++						v8 = fetch_value(id8, e)
++					end
++					for j = 1, n_sp_src do
++						output[sp_src_out[j]] = src_values[i]
++					end
++					for j = 1, n_sp_fetch do
++						output[sp_fetch_out[j]] = fetch_value(sp_fetch_ids[j], e)
++					end
++					n = i0
++					if n_ids == 1 then
++						return e, v1
++					elseif n_ids == 2 then
++						return e, v1, v2
++					elseif n_ids == 3 then
++						return e, v1, v2, v3
++					elseif n_ids == 4 then
++						return e, v1, v2, v3, v4
++					elseif n_ids == 5 then
++						return e, v1, v2, v3, v4, v5
++					elseif n_ids == 6 then
++						return e, v1, v2, v3, v4, v5, v6
++					elseif n_ids == 7 then
++						return e, v1, v2, v3, v4, v5, v6, v7
++					elseif n_ids == 8 then
++						return e, v1, v2, v3, v4, v5, v6, v7, v8
++					end
++					return e, v1, v2, v3, v4, v5, v6, v7, v8, unpack(output, 1, n_ids - 8)
++				end
++				n = 0
++				return nil
++			end
++			query.next = it
++			return it
++		end
++
++		-- Array generic for filtered low-arity df_only shapes.
++		local src_ks: { number } = {}
++		local other_ks: { number } = {}
++		local other_pools: { pool } = {}
++		local other_vals: { { any } } = {}
++		local n_src_ks = 0
++		local n_other_ks = 0
++		for j = 1, n_df_ks do
++			local k = df_ks[j]
++			if plan_pool[k] == src_pool then
++				n_src_ks += 1
++				src_ks[n_src_ks] = k
++			else
++				n_other_ks += 1
++				other_ks[n_other_ks] = k
++				local p = plan_pool[k]
++				other_pools[n_other_ks] = p
++				other_vals[n_other_ks] = p.values
++			end
++		end
++
++		local function it(): any
++			for i = n, 1, -1 do
++				local i0 = i - 1
++				local e = buffer.readf64(src_entities, i0 * 8)
++				local key = ECS_ENTITY_T_LO(e)
++
++				local ok = true
++				for j = 1, n_other_ks do
++					local p = other_pools[j]
++					local idx = if key > p.map_max then 0 else buffer.readu32(p.map, key * 4)
++					if idx == 0 then
++						ok = false
++						break
++					end
++					output[other_ks[j]] = other_vals[j][idx]
++				end
++				if not ok then
++					continue
++				end
++				if sc_map then
++					if key > sc_max or buffer.readu32(sc_map, key * 4) == 0 then
++						continue
++					end
++				elseif check_pools then
++					for _, p in check_pools :: { pool } do
++						if key > p.map_max or buffer.readu32(p.map, key * 4) == 0 then
++							ok = false
++							break
++						end
++					end
++					if not ok then
++						continue
++					end
++				end
++				if swo_map then
++					if key <= swo_max and buffer.readu32(swo_map, key * 4) ~= 0 then
++						continue
++					end
++				elseif without_pools then
++					for _, p in without_pools :: { pool } do
++						if key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0 then
++							ok = false
++							break
++						end
++					end
++					if not ok then
++						continue
++					end
++				end
++				if frag_without then
++					local fw = frag_without :: { i53 }
++					local r = sparse_array[key]
++					local columns_map = r.archetype.columns_map
++					local skip = false
++					for _, id in fw do
++						if columns_map[id] then
++							skip = true
++							break
++						end
++					end
++					if skip then
++						continue
++					end
++				end
++				if n_ids == 0 then
++					n = i0
++					return e
++				end
++				for j = 1, n_src_ks do
++					output[src_ks[j]] = src_values[i]
++				end
++				if has_wcs then
++					for j = 1, n_wc_ks do
++						local k = wc_ks[j]
++						output[k] = fetch_value(ids[k], e)
++					end
++				end
++				n = i0
++				if n_ids == 1 then
++					return e, output[1]
++				elseif n_ids == 2 then
++					return e, output[1], output[2]
++				elseif n_ids == 3 then
++					return e, output[1], output[2], output[3]
++				end
++				return e, output[1], output[2], output[3], output[4]
++			end
++			n = 0
++			return nil
++		end
++		query.next = it
++		return it
++	end
++
++	local mixed_src = plan_pool[1]
++	if mixed_src then
++		local src_entities = mixed_src.entities
++		local src_values = mixed_src.values
++		local n = mixed_src.size
++		local sparse_array = world.entity_index.sparse_array
++
++		-- NOTE(marcus): Fragmenting terms are evaluated per entity via its
++		-- archetype's columns map. But non-queried with-terms need a separate
++		-- pass though.
++		local queried: { [i53]: boolean } = {}
++		for j = 1, n_col_ks do
++			queried[ids[col_ks[j]]] = true
++		end
++		local frag_with: { i53 } = {}
++		local n_frag_with = 0
++		for _, id in query.filter_with do
++			local idr = component_index[id]
++			if not (idr and idr.sparse) and not queried[id] then
++				n_frag_with += 1
++				frag_with[n_frag_with] = id
++			end
++		end
++		local frag_without: { i53 }?
++		local filter_without = query.filter_without
++		if filter_without then
++			local arr = {}
++			local n_arr = 0
++			for _, id in filter_without do
++				local idr = component_index[id]
++				if not (idr and idr.sparse) then
++					n_arr += 1
++					arr[n_arr] = id
++				end
++			end
++			if n_arr > 0 then
++				frag_without = arr
++			end
++		end
++		-- The driver's dense walk (position 1) hands back its value directly;
++		-- every other queried DontFragment id still needs its own per-row
++		-- map probe.
++		local other_ks: { number } = {}
++		local n_other_ks = 0
++		for j = 1, n_df_ks do
++			local k = df_ks[j]
++			if k ~= 1 then
++				n_other_ks += 1
++				other_ks[n_other_ks] = k
++			end
++		end
++
++		if n_ids == 2 and n_col_ks == 1 and n_other_ks == 0 and n_frag_with == 0
++			and frag_without == nil and check_pools == nil and without_pools == nil
++			and not has_wcs then
++			-- NOTE(marcus): this is a query whose first term is a df whereas
++			-- the other is fragmenting. We basically try to predict that
++			-- entities that are adjacent in the pool sit in the same archetype.
++			-- Of course in the case of mispredictions we must pay a cost for
++			-- the hash lookup for the record.
++			local col_id = ids[2]
++			local prev_arch: archetype? = nil
++			local prev_col: Column? = nil
++			local prev_ents: { i53 }? = nil
++			local prev_row = 0
++			local function it(): any
++				for j = n, 1, -1 do
++					local j0 = j - 1
++					local e = buffer.readf64(src_entities, j0 * 8)
++					local row = prev_row - 1
++					local pe = prev_ents
++					if pe ~= nil and row >= 1 and pe[row] == e then
++						prev_row = row
++					else
++						local r = sparse_array[ECS_ENTITY_T_LO(e)]
++						row = r.row
++						prev_row = row
++						local arch = r.archetype
++						if arch ~= prev_arch then
++							prev_arch = arch
++							prev_col = arch.columns_map[col_id]
++							prev_ents = arch.entities
++						end
++					end
++					local col = prev_col
++					if col == nil then
++						continue
++					end
++					n = j0
++					return e, src_values[j], col[row]
++				end
++				n = 0
++				return nil
++			end
++			query.next = it
++			return it
++		end
++
++		if (n_ids == 3 or n_ids == 4) and n_col_ks >= 1 and n_frag_with == 0
++			and frag_without == nil and check_pools == nil and without_pools == nil
++			and not has_wcs then
++			local pool2 = plan_pool[2]
++			local pool3 = plan_pool[3]
++			local id2 = ids[2]
++			local id3 = ids[3]
++			local map2: buffer, max2: number, values2: { any }
++			if pool2 then
++				map2 = pool2.map
++				max2 = pool2.map_max
++				values2 = pool2.values
++			end
++			local map3: buffer, max3: number, values3: { any }
++			if pool3 then
++				map3 = pool3.map
++				max3 = pool3.map_max
++				values3 = pool3.values
++			end
++			local prev_arch: archetype? = nil
++			local prev_ents: { i53 }? = nil
++			local prev_row = 0
++			local col2: Column? = nil
++			local col3: Column? = nil
++
++			if n_ids == 3 then
++				local function it(): any
++					for j = n, 1, -1 do
++						local j0 = j - 1
++						local e = buffer.readf64(src_entities, j0 * 8)
++						local key = ECS_ENTITY_T_LO(e)
++						local v2, v3
++						if map2 then
++							local idx = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++							if idx == 0 then
++								continue
++							end
++							v2 = values2[idx]
++						end
++						if map3 then
++							local idx = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++							if idx == 0 then
++								continue
++							end
++							v3 = values3[idx]
++						end
++						local row = prev_row - 1
++						local pe = prev_ents
++						if pe ~= nil and row >= 1 and pe[row] == e then
++							prev_row = row
++						else
++							local r = sparse_array[key]
++							row = r.row
++							prev_row = row
++							local arch = r.archetype
++							if arch ~= prev_arch then
++								prev_arch = arch
++								prev_ents = arch.entities
++								local cm = arch.columns_map
++								if pool2 == nil then
++									col2 = cm[id2]
++								end
++								if pool3 == nil then
++									col3 = cm[id3]
++								end
++							end
++						end
++						if pool2 == nil then
++							local col = col2
++							if col == nil then
++								continue
++							end
++							v2 = col[row]
++						end
++						if pool3 == nil then
++							local col = col3
++							if col == nil then
++								continue
++							end
++							v3 = col[row]
++						end
++						n = j0
++						return e, src_values[j], v2, v3
++					end
++					n = 0
++					return nil
++				end
++				query.next = it
++				return it
++			end
++
++			local pool4 = plan_pool[4]
++			local id4 = ids[4]
++			local map4: buffer, max4: number, values4: { any }
++			if pool4 then
++				map4 = pool4.map
++				max4 = pool4.map_max
++				values4 = pool4.values
++			end
++			local col4: Column? = nil
++			local function it(): any
++				for j = n, 1, -1 do
++					local j0 = j - 1
++					local e = buffer.readf64(src_entities, j0 * 8)
++					local key = ECS_ENTITY_T_LO(e)
++					local v2, v3, v4
++					if map2 then
++						local idx = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v2 = values2[idx]
++					end
++					if map3 then
++						local idx = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v3 = values3[idx]
++					end
++					if map4 then
++						local idx = if key > max4 then 0 else buffer.readu32(map4, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v4 = values4[idx]
++					end
++					local row = prev_row - 1
++					local pe = prev_ents
++					if pe ~= nil and row >= 1 and pe[row] == e then
++						prev_row = row
++					else
++						local r = sparse_array[key]
++						row = r.row
++						prev_row = row
++						local arch = r.archetype
++						if arch ~= prev_arch then
++							prev_arch = arch
++							prev_ents = arch.entities
++							local cm = arch.columns_map
++							if pool2 == nil then
++								col2 = cm[id2]
++							end
++							if pool3 == nil then
++								col3 = cm[id3]
++							end
++							if pool4 == nil then
++								col4 = cm[id4]
++							end
++						end
++					end
++					if pool2 == nil then
++						local col = col2
++						if col == nil then
++							continue
++						end
++						v2 = col[row]
++					end
++					if pool3 == nil then
++						local col = col3
++						if col == nil then
++							continue
++						end
++						v3 = col[row]
++					end
++					if pool4 == nil then
++						local col = col4
++						if col == nil then
++							continue
++						end
++						v4 = col[row]
++					end
++					n = j0
++					return e, src_values[j], v2, v3, v4
++				end
++				n = 0
++				return nil
++			end
++			query.next = it
++			return it
++		end
++
++		-- NOTE(marcus): The first term always leads, in this case the user
++		-- elected for to be driven by a DF term. This is strictly for queries
++		-- that have 5 or more terms.
++		--
++		-- (a "slot") that the iterator reads directly. A slot's kind says
++		-- how to get that term's value for the current entity:
++		--   1 - check its DontFragment pool
++		--   2 - read the entity's archetype column
++		--   3 - ask the slow resolver (DontFragment wildcards)
++		-- Pool probes run before anything touches the
++		-- entity's archetype because they are the cheapest way to reject a
++		-- non-matching entity.
++		if n_ids >= 5 then
++			local wc_pos: { [number]: boolean }? = nil
++			if n_wc_ks > 0 then
++				local wp = {}
++				for x = 1, n_wc_ks do
++					wp[wc_ks[x]] = true
++				end
++				wc_pos = wp
++			end
++			local function slot(k: number): (number, buffer, number, { any }, i53)
++				if k > n_ids then
++					return 0, nil :: any, nil :: any, nil :: any, nil :: any
++				end
++				local p = plan_pool[k]
++				if p then
++					return 1, p.map, p.map_max, p.values, nil :: any
++				elseif wc_pos and wc_pos[k] then
++					return 3, nil :: any, nil :: any, nil :: any, ids[k]
++				end
++				return 2, nil :: any, nil :: any, nil :: any, ids[k]
++			end
++			local kind2, map2, max2, values2, id2 = slot(2)
++			local kind3, map3, max3, values3, id3 = slot(3)
++			local kind4, map4, max4, values4, id4 = slot(4)
++			local kind5, map5, max5, values5, id5 = slot(5)
++			local kind6, map6, max6, values6, id6 = slot(6)
++			local kind7, map7, max7, values7, id7 = slot(7)
++			local kind8, map8, max8, values8, id8 = slot(8)
++			local sp_probe_out: { number } = NULL_ARRAY :: any
++			local sp_pools: { pool } = NULL_ARRAY :: any
++			local sp_vals: { { any } } = NULL_ARRAY :: any
++			local sp_col_out: { number } = NULL_ARRAY :: any
++			local sp_col_ids: { i53 } = NULL_ARRAY :: any
++			local sp_cols: { [number]: Column } = NULL_ARRAY :: any
++			local sp_fetch_out: { number } = NULL_ARRAY :: any
++			local sp_fetch_ids: { i53 } = NULL_ARRAY :: any
++			local n_sp_probe = 0
++			local n_sp_col = 0
++			local n_sp_fetch = 0
++			if n_ids > 8 then
++				sp_probe_out = {}
++				sp_pools = {}
++				sp_vals = {}
++				sp_col_out = {}
++				sp_col_ids = {}
++				sp_cols = {}
++				sp_fetch_out = {}
++				sp_fetch_ids = {}
++				for k = 9, n_ids do
++					local p = plan_pool[k]
++					if p then
++						n_sp_probe += 1
++						sp_probe_out[n_sp_probe] = k - 8
++						sp_pools[n_sp_probe] = p
++						sp_vals[n_sp_probe] = p.values
++					elseif wc_pos and wc_pos[k] then
++						n_sp_fetch += 1
++						sp_fetch_out[n_sp_fetch] = k - 8
++						sp_fetch_ids[n_sp_fetch] = ids[k]
++					else
++						n_sp_col += 1
++						sp_col_out[n_sp_col] = k - 8
++						sp_col_ids[n_sp_col] = ids[k]
++					end
++				end
++			end
++			local col2: Column?, col3: Column?, col4: Column?, col5: Column?
++			local col6: Column?, col7: Column?, col8: Column?
++			local needs_arch = n_col_ks > 0 or n_frag_with > 0 or frag_without ~= nil
++			local prev_arch: archetype? = nil
++			local prev_cm: { [i53]: Column } = NULL_ARRAY :: any
++			local prev_ents: { i53 }? = nil
++			local prev_row = 0
++			local function it(): any
++				for j = n, 1, -1 do
++					local j0 = j - 1
++					local e = buffer.readf64(src_entities, j0 * 8)
++					local key = ECS_ENTITY_T_LO(e)
++					local v2, v3, v4, v5, v6, v7, v8
++					if kind2 == 1 then
++						local idx = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v2 = values2[idx]
++					end
++					if kind3 == 1 then
++						local idx = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v3 = values3[idx]
++					end
++					if kind4 == 1 then
++						local idx = if key > max4 then 0 else buffer.readu32(map4, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v4 = values4[idx]
++					end
++					if kind5 == 1 then
++						local idx = if key > max5 then 0 else buffer.readu32(map5, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v5 = values5[idx]
++					end
++					if kind6 == 1 then
++						local idx = if key > max6 then 0 else buffer.readu32(map6, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v6 = values6[idx]
++					end
++					if kind7 == 1 then
++						local idx = if key > max7 then 0 else buffer.readu32(map7, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v7 = values7[idx]
++					end
++					if kind8 == 1 then
++						local idx = if key > max8 then 0 else buffer.readu32(map8, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v8 = values8[idx]
++					end
++					local ok = true
++					for x = 1, n_sp_probe do
++						local p = sp_pools[x]
++						local idx = if key > p.map_max then 0 else buffer.readu32(p.map, key * 4)
++						if idx == 0 then
++							ok = false
++							break
++						end
++						output[sp_probe_out[x]] = sp_vals[x][idx]
++					end
++					if not ok then
++						continue
++					end
++					if sc_map then
++						if key > sc_max or buffer.readu32(sc_map, key * 4) == 0 then
++							continue
++						end
++					elseif check_pools then
++						for _, p in check_pools :: { pool } do
++							if key > p.map_max or buffer.readu32(p.map, key * 4) == 0 then
++								ok = false
++								break
++							end
++						end
++						if not ok then
++							continue
++						end
++					end
++					if swo_map then
++						if key <= swo_max and buffer.readu32(swo_map, key * 4) ~= 0 then
++							continue
++						end
++					elseif without_pools then
++						for _, p in without_pools :: { pool } do
++							if key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0 then
++								ok = false
++								break
++							end
++						end
++						if not ok then
++							continue
++						end
++					end
++					local row = 0
++					if needs_arch then
++						row = prev_row - 1
++						local pe = prev_ents
++						if pe ~= nil and row >= 1 and pe[row] == e then
++							prev_row = row
++						else
++							local r = sparse_array[key]
++							row = r.row
++							prev_row = row
++							local arch = r.archetype
++							if arch ~= prev_arch then
++								prev_arch = arch
++								prev_ents = arch.entities
++								local cm = arch.columns_map
++								prev_cm = cm
++								if kind2 == 2 then
++									col2 = cm[id2]
++								end
++								if kind3 == 2 then
++									col3 = cm[id3]
++								end
++								if kind4 == 2 then
++									col4 = cm[id4]
++								end
++								if kind5 == 2 then
++									col5 = cm[id5]
++								end
++								if kind6 == 2 then
++									col6 = cm[id6]
++								end
++								if kind7 == 2 then
++									col7 = cm[id7]
++								end
++								if kind8 == 2 then
++									col8 = cm[id8]
++								end
++								for x = 1, n_sp_col do
++									sp_cols[x] = cm[sp_col_ids[x]]
++								end
++							end
++						end
++						for x = 1, n_frag_with do
++							if not prev_cm[frag_with[x]] then
++								ok = false
++								break
++							end
++						end
++						if not ok then
++							continue
++						end
++						if frag_without then
++							for _, id in frag_without :: { i53 } do
++								if prev_cm[id] then
++									ok = false
++									break
++								end
++							end
++							if not ok then
++								continue
++							end
++						end
++					end
++					if kind2 == 2 then
++						local col = col2
++						if col == nil then
++							continue
++						end
++						v2 = col[row]
++					elseif kind2 == 3 then
++						v2 = fetch_value(id2, e)
++					end
++					if kind3 == 2 then
++						local col = col3
++						if col == nil then
++							continue
++						end
++						v3 = col[row]
++					elseif kind3 == 3 then
++						v3 = fetch_value(id3, e)
++					end
++					if kind4 == 2 then
++						local col = col4
++						if col == nil then
++							continue
++						end
++						v4 = col[row]
++					elseif kind4 == 3 then
++						v4 = fetch_value(id4, e)
++					end
++					if kind5 == 2 then
++						local col = col5
++						if col == nil then
++							continue
++						end
++						v5 = col[row]
++					elseif kind5 == 3 then
++						v5 = fetch_value(id5, e)
++					end
++					if kind6 == 2 then
++						local col = col6
++						if col == nil then
++							continue
++						end
++						v6 = col[row]
++					elseif kind6 == 3 then
++						v6 = fetch_value(id6, e)
++					end
++					if kind7 == 2 then
++						local col = col7
++						if col == nil then
++							continue
++						end
++						v7 = col[row]
++					elseif kind7 == 3 then
++						v7 = fetch_value(id7, e)
++					end
++					if kind8 == 2 then
++						local col = col8
++						if col == nil then
++							continue
++						end
++						v8 = col[row]
++					elseif kind8 == 3 then
++						v8 = fetch_value(id8, e)
++					end
++					for x = 1, n_sp_col do
++						local col = sp_cols[x]
++						if col == nil then
++							ok = false
++							break
++						end
++						output[sp_col_out[x]] = col[row]
++					end
++					if not ok then
++						continue
++					end
++					for x = 1, n_sp_fetch do
++						output[sp_fetch_out[x]] = fetch_value(sp_fetch_ids[x], e)
++					end
++					local v1 = src_values[j]
++					n = j0
++					if n_ids == 1 then
++						return e, v1
++					elseif n_ids == 2 then
++						return e, v1, v2
++					elseif n_ids == 3 then
++						return e, v1, v2, v3
++					elseif n_ids == 4 then
++						return e, v1, v2, v3, v4
++					elseif n_ids == 5 then
++						return e, v1, v2, v3, v4, v5
++					elseif n_ids == 6 then
++						return e, v1, v2, v3, v4, v5, v6
++					elseif n_ids == 7 then
++						return e, v1, v2, v3, v4, v5, v6, v7
++					elseif n_ids == 8 then
++						return e, v1, v2, v3, v4, v5, v6, v7, v8
++					end
++					return e, v1, v2, v3, v4, v5, v6, v7, v8, unpack(output, 1, n_ids - 8)
++				end
++				n = 0
++				return nil
++			end
++			query.next = it
++			return it
++		end
++
++		-- Array generic for filtered low-arity sparse-driven shapes.
++		local other_pools = table.create(n_other_ks) :: { pool }
++		local other_vals = table.create(n_other_ks) :: { { any } }
++		for x = 1, n_other_ks do
++			local p = plan_pool[other_ks[x]]
++			other_pools[x] = p
++			other_vals[x] = p.values
++		end
++		local needs_arch = n_col_ks > 0 or n_frag_with > 0 or frag_without ~= nil
++		local cols = table.create(n_col_ks) :: { Column? }
++		local prev_arch: archetype? = nil
++		local prev_cm: { [i53]: Column } = NULL_ARRAY :: any
++		local prev_ents: { i53 }? = nil
++		local prev_row = 0
++		local function it(): any
++			for j = n, 1, -1 do
++				local j0 = j - 1
++				local e = buffer.readf64(src_entities, j0 * 8)
++				local key = ECS_ENTITY_T_LO(e)
++				local ok = true
++				for x = 1, n_other_ks do
++					local p = other_pools[x]
++					local idx = if key > p.map_max then 0 else buffer.readu32(p.map, key * 4)
++					if idx == 0 then
++						ok = false
++						break
++					end
++					output[other_ks[x]] = other_vals[x][idx]
++				end
++				if not ok then
++					continue
++				end
++				if sc_map then
++					if key > sc_max or buffer.readu32(sc_map, key * 4) == 0 then
++						continue
++					end
++				elseif check_pools then
++					for _, p in check_pools :: { pool } do
++						if key > p.map_max or buffer.readu32(p.map, key * 4) == 0 then
++							ok = false
++							break
++						end
++					end
++					if not ok then
++						continue
++					end
++				end
++				if swo_map then
++					if key <= swo_max and buffer.readu32(swo_map, key * 4) ~= 0 then
++						continue
++					end
++				elseif without_pools then
++					for _, p in without_pools :: { pool } do
++						if key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0 then
++							ok = false
++							break
++						end
++					end
++					if not ok then
++						continue
++					end
++				end
++				if needs_arch then
++					local row = prev_row - 1
++					local pe = prev_ents
++					if pe ~= nil and row >= 1 and pe[row] == e then
++						prev_row = row
++					else
++						local r = sparse_array[key]
++						row = r.row
++						prev_row = row
++						local arch = r.archetype
++						if arch ~= prev_arch then
++							prev_arch = arch
++							prev_ents = arch.entities
++							local cm = arch.columns_map
++							prev_cm = cm
++							for x = 1, n_col_ks do
++								cols[x] = cm[ids[col_ks[x]]]
++							end
++						end
++					end
++					for x = 1, n_frag_with do
++						if not prev_cm[frag_with[x]] then
++							ok = false
++							break
++						end
++					end
++					if not ok then
++						continue
++					end
++					if frag_without then
++						for _, id in frag_without :: { i53 } do
++							if prev_cm[id] then
++								ok = false
++								break
++							end
++						end
++						if not ok then
++							continue
++						end
++					end
++					for x = 1, n_col_ks do
++						local col = cols[x]
++						if col == nil then
++							ok = false
++							break
++						end
++						output[col_ks[x]] = col[row]
++					end
++					if not ok then
++						continue
++					end
++				end
++				for x = 1, n_wc_ks do
++					local k = wc_ks[x]
++					output[k] = fetch_value(ids[k], e)
++				end
++				output[1] = src_values[j]
++				n = j0
++				if n_ids == 1 then
++					return e, output[1]
++				elseif n_ids == 2 then
++					return e, output[1], output[2]
++				elseif n_ids == 3 then
++					return e, output[1], output[2], output[3]
++				end
++				return e, output[1], output[2], output[3], output[4]
++			end
++			n = 0
++			return nil
++		end
++		query.next = it
++		return it
++	end
++
++	local archetypes = query.compatible_archetypes
++	local last_archetype = 1
++	local archetype = archetypes[1]
++	local entities: { i53 } = if archetype then archetype.entities else NULL_ARRAY :: any
++	local i = #entities
++	local columns_map: { [i53]: Column }? = if archetype then archetype.columns_map else nil
++
++	if n_ids == 2 and n_col_ks == 1 and n_df_ks == 1 and single_df_k == 2
++		and not has_wcs and check_pools == nil and without_pools == nil then
++		local col_id = ids[1]
++		local col: Column = if columns_map
++			then (columns_map :: { [i53]: Column })[col_id]
++			else NULL_ARRAY
++		local function it(): any
++			while archetype do
++				for row = i, 1, -1 do
++					local e = entities[row]
++					local key = ECS_ENTITY_T_LO(e)
++					local idx = if key > sdf_max then 0 else buffer.readu32(sdf_map, key * 4)
++					if idx == 0 then
++						continue
++					end
++					i = row - 1
++					return e, col[row], sdf_values[idx]
++				end
++				last_archetype += 1
++				archetype = archetypes[last_archetype]
++				if not archetype then
++					return nil
++				end
++				entities = archetype.entities
++				i = #entities
++				col = archetype.columns_map[col_id]
++			end
++			return nil
++		end
++		query.next = it
++		return it
++	end
++
++	if (n_ids == 3 or n_ids == 4) and n_df_ks >= 1 and not has_wcs
++		and check_pools == nil and without_pools == nil then
++		local id1 = ids[1]
++		local pool2 = plan_pool[2]
++		local pool3 = plan_pool[3]
++		local id2 = ids[2]
++		local id3 = ids[3]
++		local map2: buffer, max2: number, values2: { any }
++		if pool2 then
++			map2 = pool2.map
++			max2 = pool2.map_max
++			values2 = pool2.values
++		end
++		local map3: buffer, max3: number, values3: { any }
++		if pool3 then
++			map3 = pool3.map
++			max3 = pool3.map_max
++			values3 = pool3.values
++		end
++		local cm0: { [i53]: Column }? = columns_map
++		local col1: Column = if cm0 then cm0[id1] else NULL_ARRAY
++		local col2: Column = if cm0 and pool2 == nil then cm0[id2] else NULL_ARRAY
++		local col3: Column = if cm0 and pool3 == nil then cm0[id3] else NULL_ARRAY
++
++		if n_ids == 3 then
++			local function it(): any
++				while archetype do
++					for row = i, 1, -1 do
++						local e = entities[row]
++						local key = ECS_ENTITY_T_LO(e)
++						local v2, v3
++						if map2 then
++							local idx = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++							if idx == 0 then
++								continue
++							end
++							v2 = values2[idx]
++						else
++							v2 = col2[row]
++						end
++						if map3 then
++							local idx = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++							if idx == 0 then
++								continue
++							end
++							v3 = values3[idx]
++						else
++							v3 = col3[row]
++						end
++						i = row - 1
++						return e, col1[row], v2, v3
++					end
++					last_archetype += 1
++					archetype = archetypes[last_archetype]
++					if not archetype then
++						return nil
++					end
++					entities = archetype.entities
++					i = #entities
++					local cm = archetype.columns_map
++					col1 = cm[id1]
++					if pool2 == nil then
++						col2 = cm[id2]
++					end
++					if pool3 == nil then
++						col3 = cm[id3]
++					end
++				end
++				return nil
++			end
++			query.next = it
++			return it
++		end
++
++		local pool4 = plan_pool[4]
++		local id4 = ids[4]
++		local map4: buffer, max4: number, values4: { any }
++		if pool4 then
++			map4 = pool4.map
++			max4 = pool4.map_max
++			values4 = pool4.values
++		end
++		local col4: Column = if cm0 and pool4 == nil then cm0[id4] else NULL_ARRAY
++		local function it(): any
++			while archetype do
++				for row = i, 1, -1 do
++					local e = entities[row]
++					local key = ECS_ENTITY_T_LO(e)
++					local v2, v3, v4
++					if map2 then
++						local idx = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v2 = values2[idx]
++					else
++						v2 = col2[row]
++					end
++					if map3 then
++						local idx = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v3 = values3[idx]
++					else
++						v3 = col3[row]
++					end
++					if map4 then
++						local idx = if key > max4 then 0 else buffer.readu32(map4, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v4 = values4[idx]
++					else
++						v4 = col4[row]
++					end
++					i = row - 1
++					return e, col1[row], v2, v3, v4
++				end
++				last_archetype += 1
++				archetype = archetypes[last_archetype]
++				if not archetype then
++					return nil
++				end
++				entities = archetype.entities
++				i = #entities
++				local cm = archetype.columns_map
++				col1 = cm[id1]
++				if pool2 == nil then
++					col2 = cm[id2]
++				end
++				if pool3 == nil then
++					col3 = cm[id3]
++				end
++				if pool4 == nil then
++					col4 = cm[id4]
++				end
++			end
++			return nil
++		end
++		query.next = it
++		return it
++	end
++
++	if n_df_ks == 0 and n_wc_ks == 0 and check_pools == nil and swo_map ~= nil
++		and without_pools and #without_pools == 1 then
++		local cols = table.create(n_ids) :: { Column }
++		if columns_map then
++			local cm = columns_map :: { [i53]: Column }
++			for k = 1, n_ids do
++				cols[k] = cm[ids[k]]
++			end
++		end
++		local function it(): any
++			while archetype do
++				for row = i, 1, -1 do
++					local e = entities[row]
++					local key = ECS_ENTITY_T_LO(e)
++					if key <= swo_max and buffer.readu32(swo_map, key * 4) ~= 0 then
++						continue
++					end
++					i = row - 1
++					for k = 1, n_ids do
++						output[k] = cols[k][row]
++					end
++					if n_ids == 1 then
++						return e, output[1]
++					elseif n_ids == 2 then
++						return e, output[1], output[2]
++					elseif n_ids == 3 then
++						return e, output[1], output[2], output[3]
++					elseif n_ids == 4 then
++						return e, output[1], output[2], output[3], output[4]
++					end
++					return e, unpack(output, 1, n_ids)
++				end
++				last_archetype += 1
++				archetype = archetypes[last_archetype]
++				if not archetype then
++					return nil
++				end
++				entities = archetype.entities
++				i = #entities
++				local cm = archetype.columns_map
++				for k = 1, n_ids do
++					cols[k] = cm[ids[k]]
++				end
++			end
++			return nil
++		end
++		query.next = it
++		return it
++	end
++
++	-- Archetype driven
++	if n_ids >= 5 then
++		local wc_pos: { [number]: boolean }? = nil
++		if n_wc_ks > 0 then
++			local wp = {}
++			for x = 1, n_wc_ks do
++				wp[wc_ks[x]] = true
++			end
++			wc_pos = wp
+ 		end
+-
+-		local without = query.filter_without
+-
+-		for archetype_id in idr.records do
+-			local archetype = archetypes[archetype_id]
+-			local columns_map = archetype.columns_map
+-			local skip = false
+-			for _, component in with do
+-				if not columns_map[component] then
+-					skip = true
+-					break
++		local function slot(k: number): (number, buffer, number, { any }, i53)
++			if k > n_ids then
++				return 0, nil :: any, nil :: any, nil :: any, nil :: any
++			end
++			local p = plan_pool[k]
++			if p then
++				return 1, p.map, p.map_max, p.values, nil :: any
++			elseif wc_pos and wc_pos[k] then
++				return 3, nil :: any, nil :: any, nil :: any, ids[k]
++			end
++			return 2, nil :: any, nil :: any, nil :: any, ids[k]
++		end
++		local kind1, map1, max1, values1, id1 = slot(1)
++		local kind2, map2, max2, values2, id2 = slot(2)
++		local kind3, map3, max3, values3, id3 = slot(3)
++		local kind4, map4, max4, values4, id4 = slot(4)
++		local kind5, map5, max5, values5, id5 = slot(5)
++		local kind6, map6, max6, values6, id6 = slot(6)
++		local kind7, map7, max7, values7, id7 = slot(7)
++		local kind8, map8, max8, values8, id8 = slot(8)
++		local sp_probe_out: { number } = NULL_ARRAY :: any
++		local sp_pools: { pool } = NULL_ARRAY :: any
++		local sp_vals: { { any } } = NULL_ARRAY :: any
++		local sp_col_out: { number } = NULL_ARRAY :: any
++		local sp_col_ids: { i53 } = NULL_ARRAY :: any
++		local sp_cols: { [number]: Column } = NULL_ARRAY :: any
++		local sp_fetch_out: { number } = NULL_ARRAY :: any
++		local sp_fetch_ids: { i53 } = NULL_ARRAY :: any
++		local n_sp_probe = 0
++		local n_sp_col = 0
++		local n_sp_fetch = 0
++		if n_ids > 8 then
++			sp_probe_out = {}
++			sp_pools = {}
++			sp_vals = {}
++			sp_col_out = {}
++			sp_col_ids = {}
++			sp_cols = {}
++			sp_fetch_out = {}
++			sp_fetch_ids = {}
++			for k = 9, n_ids do
++				local p = plan_pool[k]
++				if p then
++					n_sp_probe += 1
++					sp_probe_out[n_sp_probe] = k - 8
++					sp_pools[n_sp_probe] = p
++					sp_vals[n_sp_probe] = p.values
++				elseif wc_pos and wc_pos[k] then
++					n_sp_fetch += 1
++					sp_fetch_out[n_sp_fetch] = k - 8
++					sp_fetch_ids[n_sp_fetch] = ids[k]
++				else
++					n_sp_col += 1
++					sp_col_out[n_sp_col] = k - 8
++					sp_col_ids[n_sp_col] = ids[k]
+ 				end
+ 			end
+-			if skip then
+-				continue
++		end
++		local col1: Column, col2: Column, col3: Column, col4: Column
++		local col5: Column, col6: Column, col7: Column, col8: Column
++		local function rebind_cols(cm: { [i53]: Column })
++			if kind1 == 2 then
++				col1 = cm[id1]
+ 			end
+-			if without then
+-				for _, component in without do
+-					if columns_map[component] then
+-						skip = true
+-						break
++			if kind2 == 2 then
++				col2 = cm[id2]
++			end
++			if kind3 == 2 then
++				col3 = cm[id3]
++			end
++			if kind4 == 2 then
++				col4 = cm[id4]
++			end
++			if kind5 == 2 then
++				col5 = cm[id5]
++			end
++			if kind6 == 2 then
++				col6 = cm[id6]
++			end
++			if kind7 == 2 then
++				col7 = cm[id7]
++			end
++			if kind8 == 2 then
++				col8 = cm[id8]
++			end
++			for x = 1, n_sp_col do
++				sp_cols[x] = cm[sp_col_ids[x]]
++			end
++		end
++		if columns_map then
++			rebind_cols(columns_map :: { [i53]: Column })
++		end
++		local function it(): any
++			while archetype do
++				for row = i, 1, -1 do
++					local e = entities[row]
++					local key = ECS_ENTITY_T_LO(e)
++					local v1, v2, v3, v4, v5, v6, v7, v8
++					if kind1 == 1 then
++						local idx = if key > max1 then 0 else buffer.readu32(map1, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v1 = values1[idx]
++					end
++					if kind2 == 1 then
++						local idx = if key > max2 then 0 else buffer.readu32(map2, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v2 = values2[idx]
++					end
++					if kind3 == 1 then
++						local idx = if key > max3 then 0 else buffer.readu32(map3, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v3 = values3[idx]
++					end
++					if kind4 == 1 then
++						local idx = if key > max4 then 0 else buffer.readu32(map4, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v4 = values4[idx]
++					end
++					if kind5 == 1 then
++						local idx = if key > max5 then 0 else buffer.readu32(map5, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v5 = values5[idx]
++					end
++					if kind6 == 1 then
++						local idx = if key > max6 then 0 else buffer.readu32(map6, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v6 = values6[idx]
++					end
++					if kind7 == 1 then
++						local idx = if key > max7 then 0 else buffer.readu32(map7, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v7 = values7[idx]
++					end
++					if kind8 == 1 then
++						local idx = if key > max8 then 0 else buffer.readu32(map8, key * 4)
++						if idx == 0 then
++							continue
++						end
++						v8 = values8[idx]
++					end
++					local ok = true
++					for x = 1, n_sp_probe do
++						local p = sp_pools[x]
++						local idx = if key > p.map_max then 0 else buffer.readu32(p.map, key * 4)
++						if idx == 0 then
++							ok = false
++							break
++						end
++						output[sp_probe_out[x]] = sp_vals[x][idx]
++					end
++					if not ok then
++						continue
++					end
++					if sc_map then
++						if key > sc_max or buffer.readu32(sc_map, key * 4) == 0 then
++							continue
++						end
++					elseif check_pools then
++						for _, p in check_pools :: { pool } do
++							if key > p.map_max or buffer.readu32(p.map, key * 4) == 0 then
++								ok = false
++								break
++							end
++						end
++						if not ok then
++							continue
++						end
++					end
++					if swo_map then
++						if key <= swo_max and buffer.readu32(swo_map, key * 4) ~= 0 then
++							continue
++						end
++					elseif without_pools then
++						for _, p in without_pools :: { pool } do
++							if key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0 then
++								ok = false
++								break
++							end
++						end
++						if not ok then
++							continue
++						end
++					end
++					if kind1 == 2 then
++						v1 = col1[row]
++					elseif kind1 == 3 then
++						v1 = fetch_value(id1, e)
++					end
++					if kind2 == 2 then
++						v2 = col2[row]
++					elseif kind2 == 3 then
++						v2 = fetch_value(id2, e)
++					end
++					if kind3 == 2 then
++						v3 = col3[row]
++					elseif kind3 == 3 then
++						v3 = fetch_value(id3, e)
++					end
++					if kind4 == 2 then
++						v4 = col4[row]
++					elseif kind4 == 3 then
++						v4 = fetch_value(id4, e)
++					end
++					if kind5 == 2 then
++						v5 = col5[row]
++					elseif kind5 == 3 then
++						v5 = fetch_value(id5, e)
++					end
++					if kind6 == 2 then
++						v6 = col6[row]
++					elseif kind6 == 3 then
++						v6 = fetch_value(id6, e)
+ 					end
++					if kind7 == 2 then
++						v7 = col7[row]
++					elseif kind7 == 3 then
++						v7 = fetch_value(id7, e)
++					end
++					if kind8 == 2 then
++						v8 = col8[row]
++					elseif kind8 == 3 then
++						v8 = fetch_value(id8, e)
++					end
++					for x = 1, n_sp_col do
++						output[sp_col_out[x]] = sp_cols[x][row]
++					end
++					for x = 1, n_sp_fetch do
++						output[sp_fetch_out[x]] = fetch_value(sp_fetch_ids[x], e)
++					end
++					i = row - 1
++					if n_ids == 0 then
++						return e
++					elseif n_ids == 1 then
++						return e, v1
++					elseif n_ids == 2 then
++						return e, v1, v2
++					elseif n_ids == 3 then
++						return e, v1, v2, v3
++					elseif n_ids == 4 then
++						return e, v1, v2, v3, v4
++					elseif n_ids == 5 then
++						return e, v1, v2, v3, v4, v5
++					elseif n_ids == 6 then
++						return e, v1, v2, v3, v4, v5, v6
++					elseif n_ids == 7 then
++						return e, v1, v2, v3, v4, v5, v6, v7
++					elseif n_ids == 8 then
++						return e, v1, v2, v3, v4, v5, v6, v7, v8
++					end
++					return e, v1, v2, v3, v4, v5, v6, v7, v8, unpack(output, 1, n_ids - 8)
++				end
++				last_archetype += 1
++				archetype = archetypes[last_archetype]
++				if not archetype then
++					return nil
+ 				end
++				entities = archetype.entities
++				i = #entities
++				rebind_cols(archetype.columns_map)
+ 			end
++			return nil
++		end
++		query.next = it
++		return it
++	end
+ 
+-			if skip then
+-				continue
++	local df_pools = table.create(n_df_ks) :: { pool }
++	local df_vals = table.create(n_df_ks) :: { { any } }
++	for x = 1, n_df_ks do
++		local p = plan_pool[df_ks[x]]
++		df_pools[x] = p
++		df_vals[x] = p.values
++	end
++	local cols = table.create(n_col_ks) :: { Column }
++	if columns_map then
++		local cm = columns_map :: { [i53]: Column }
++		for x = 1, n_col_ks do
++			cols[x] = cm[ids[col_ks[x]]]
++		end
++	end
++	local function it(): any
++		while archetype do
++			for row = i, 1, -1 do
++				local e = entities[row]
++				local key = ECS_ENTITY_T_LO(e)
++				local ok = true
++				for x = 1, n_df_ks do
++					local p = df_pools[x]
++					local idx = if key > p.map_max then 0 else buffer.readu32(p.map, key * 4)
++					if idx == 0 then
++						ok = false
++						break
++					end
++					output[df_ks[x]] = df_vals[x][idx]
++				end
++				if not ok then
++					continue
++				end
++				if sc_map then
++					if key > sc_max or buffer.readu32(sc_map, key * 4) == 0 then
++						continue
++					end
++				elseif check_pools then
++					for _, p in check_pools :: { pool } do
++						if key > p.map_max or buffer.readu32(p.map, key * 4) == 0 then
++							ok = false
++							break
++						end
++					end
++					if not ok then
++						continue
++					end
++				end
++				if swo_map then
++					if key <= swo_max and buffer.readu32(swo_map, key * 4) ~= 0 then
++						continue
++					end
++				elseif without_pools then
++					for _, p in without_pools :: { pool } do
++						if key <= p.map_max and buffer.readu32(p.map, key * 4) ~= 0 then
++							ok = false
++							break
++						end
++					end
++					if not ok then
++						continue
++					end
++				end
++				for x = 1, n_col_ks do
++					output[col_ks[x]] = cols[x][row]
++				end
++				for x = 1, n_wc_ks do
++					local k = wc_ks[x]
++					output[k] = fetch_value(ids[k], e)
++				end
++				i = row - 1
++				if n_ids == 0 then
++					return e
++				elseif n_ids == 1 then
++					return e, output[1]
++				elseif n_ids == 2 then
++					return e, output[1], output[2]
++				elseif n_ids == 3 then
++					return e, output[1], output[2], output[3]
++				end
++				return e, output[1], output[2], output[3], output[4]
++			end
++			last_archetype += 1
++			archetype = archetypes[last_archetype]
++			if not archetype then
++				return nil
++			end
++			entities = archetype.entities
++			i = #entities
++			local cm = archetype.columns_map
++			for x = 1, n_col_ks do
++				cols[x] = cm[ids[col_ks[x]]]
+ 			end
+-
+-			table.insert(compatible_archetypes, archetype)
+ 		end
++		return nil
+ 	end
+-	return compatible_archetypes
+-end
+-
+-local function query_with(query: query, ...: i53)
+-	local ids = query.ids
+-	local with = { ... }
+-	table.move(ids, 1, #ids, #with + 1, with)
+-	query.filter_with = with
+-	return query
+-end
+-
+-local function query_without(query: query, ...: i53)
+-	local without = { ... }
+-	query.filter_without = without
+-	return query
++	query.next = it
++	return it
+ end
+ 
+ local function query_iter_init(query: QueryInner): () -> (number, ...any)
+ 	local world_query_iter_next
+ 
+ 	local compatible_archetypes_u = query_archetypes(query::any) :: { Archetype }
++	if query.df then
++		return query_iter_df_init(query :: any) :: any
++	end
+ 	local last_archetype_u = 1
+ 	local archetype_u = compatible_archetypes_u[1]
+ 	if not archetype_u then
+@@ -1862,10 +5235,151 @@ local function query_iter(query): () -> (number, ...any)
+ 	return query_next
+ end
+ 
+-local function query_cached(query: QueryInner)
++local function query_sort(query: query, cmp: (archetype, archetype) -> boolean)
++	local compatible_archetypes = query_archetypes(query)
++	table.sort(compatible_archetypes, cmp)
++	return query
++end
++
++-- Cached queries with DontFragment terms: the cache tracks archetypes for the
++-- fragmenting terms (observers keyed on a fragmenting id); DontFragment terms
++-- are evaluated per entity at iteration time, like flecs.
++local function query_cached_df(query: query)
++	local world = query.world
++	local component_index = world.component_index
++
++	local id0
++	for _, id in query.filter_with do
++		local map = component_index[id]
++		if not (map and map.sparse) then
++			id0 = id
++			break
++		end
++	end
++	if not id0 then
++		error("cannot cache a query with only DontFragment terms")
++	end
++
++	local archetypes = query.compatible_archetypes
++	local archetypes_map = {}
++	query.archetypes_map = archetypes_map
++	for j, arche in archetypes do
++		archetypes_map[arche.id] = j
++	end
++
++	local observable = (world :: any).observable
++	local on_create_action = observable[EcsOnArchetypeCreate]
++	if not on_create_action then
++		on_create_action = {}
++		observable[EcsOnArchetypeCreate] = on_create_action
++	end
++	local query_cache_on_create = on_create_action[id0]
++	if not query_cache_on_create then
++		query_cache_on_create = {}
++		on_create_action[id0] = query_cache_on_create
++	end
++
++	local on_delete_action = observable[EcsOnArchetypeDelete]
++	if not on_delete_action then
++		on_delete_action = {}
++		observable[EcsOnArchetypeDelete] = on_delete_action
++	end
++	local query_cache_on_delete = on_delete_action[id0]
++	if not query_cache_on_delete then
++		query_cache_on_delete = {}
++		on_delete_action[id0] = query_cache_on_delete
++	end
++
++	local function on_create_callback(archetype: archetype)
++		local n = #archetypes + 1
++		archetypes[n] = archetype
++		archetypes_map[archetype.id] = n
++	end
++
++	local function on_delete_callback(archetype: archetype)
++		local n = #archetypes
++		local lastarchetype = archetypes[n]
++		local archetypeid = archetype.id
++		local i = archetypes_map[archetypeid]
++
++		archetypes[i] = lastarchetype
++		archetypes[n] = nil
++
++		archetypes_map[archetypeid] = nil
++		archetypes_map[lastarchetype.id] = i
++	end
++
++	local observer_for_create = { query = query, callback = on_create_callback }
++	local observer_for_delete = { query = query, callback = on_delete_callback }
++
++	table.insert(query_cache_on_create, observer_for_create)
++	table.insert(query_cache_on_delete, observer_for_delete)
++
++	local function cached_query_iter()
++		return query_iter_df_init(query)
++	end
++
++	local eindex = world.entity_index
++
++	local function cached_query_has(_, entity: i53): boolean
++		local r = entity_index_try_get_fast(eindex, entity)
++		if not r then
++			return false
++		end
++		local entityarchetype = r.archetype
++		if not entityarchetype or archetypes_map[entityarchetype.id] == nil then
++			return false
++		end
++		local df_with = query.df_with
++		if df_with then
++			for _, id in df_with do
++				local idr = component_index[id]
++				local sparse = idr and idr.sparse
++				if not (sparse and pool_find(sparse, entity) ~= 0) then
++					return false
++				end
++			end
++		end
++		local df_without = query.df_without
++		if df_without then
++			for _, id in df_without do
++				local idr = component_index[id]
++				local sparse = idr and idr.sparse
++				if sparse and pool_find(sparse, entity) ~= 0 then
++					return false
++				end
++			end
++		end
++		return true
++	end
++
++	local function cached_query_fini()
++		local create_pos = table.find(query_cache_on_create, observer_for_create)
++		if create_pos then
++			table.remove(query_cache_on_create, create_pos)
++		end
++
++		local delete_pos = table.find(query_cache_on_delete, observer_for_delete)
++		if delete_pos then
++			table.remove(query_cache_on_delete, delete_pos)
++		end
++	end
++
++	local cached_query = query :: any
++	cached_query.archetypes = query_archetypes
++	cached_query.__iter = cached_query_iter
++	cached_query.iter = cached_query_iter
++	cached_query.has = cached_query_has
++	cached_query.fini = cached_query_fini
++	cached_query.sort = query_sort
++	setmetatable(cached_query, cached_query)
++	return cached_query
++end
++
++local function query_cached(query: query)
+ 	local ids_u = query.ids
+ 
+-	local id0, id1, id2, id3, id4, id5, id6, id7, id8 = unpack(ids_u :: { Component })
++	local id0, id1, id2, id3, id4, id5, id6, id7, id8 = unpack(ids_u)
+ 	if not id0 then
+ 		id0 = query.filter_with[1]
+ 	end
+@@ -1873,7 +5387,34 @@ local function query_cached(query: QueryInner)
+ 	local col4_u: Column, col5_u: Column, col6_u: Column, col7_u: Column
+ 
+ 	local world_query_iter_next
+-	local archetypes = query_archetypes(query :: any) :: { Archetype }
++
++	local world = query.world
++	local component_index = world.component_index
++	local entity_index = world.entity_index
++	for _, id in query.filter_with do
++		-- NOTE(marcus): For cached queries we want to ensure that dont fragment
++		-- terms that have no corresponding records are ensured that way we do not
++		-- have to assert it during iteration.
++		if not component_index[id] then
++			local alive = false
++			if ECS_IS_PAIR(id) then
++				local rel = entity_index_get_alive(entity_index, ECS_PAIR_FIRST(id))
++				local tgt = entity_index_get_alive(entity_index, ECS_PAIR_SECOND(id))
++				alive = rel ~= nil and tgt ~= nil
++					and entity_index_is_alive(entity_index, rel :: i53)
++					and entity_index_is_alive(entity_index, tgt :: i53)
++			else
++				alive = entity_index_is_alive(entity_index, id)
++			end
++			if alive then
++				id_record_ensure(world, id)
++			end
++		end
++	end
++	local archetypes = query_archetypes(query, true) :: { Archetype }
++	if query.df then
++		return query_cached_df(query)
++	end
+ 	local archetypes_map = {}
+ 	query.archetypes_map = archetypes_map
+ 
+@@ -1881,12 +5422,12 @@ local function query_cached(query: QueryInner)
+ 		archetypes_map[arche.id] = j
+ 	end
+ 
+-	local compatible_archetypes_u = archetypes :: { Archetype }
++	local compatible_archetypes_u = archetypes :: { archetype }
+ 	local last_archetype_u = 1
+ 	local archetype_u = compatible_archetypes_u[1]
+-	local entities_u: { Entity }
++	local entities_u: { i53 }
+ 	local i_u: number
+-	local columns_map_u: { [Component]: Column }
++	local columns_map_u: { [i53]: Column }
+ 	if not archetype_u then
+ 		entities_u = {}
+ 		i_u = 0
+@@ -1897,14 +5438,13 @@ local function query_cached(query: QueryInner)
+ 		columns_map_u = archetype_u.columns_map
+ 	end
+ 
+-	local world = (query :: { world: World }).world
+ 	-- Only need one observer for EcsArchetypeCreate and EcsArchetypeDelete respectively
+ 	-- because the event will be emitted for all components of that Archetype.
+ 	local observable = world.observable
+-	local on_create_action = observable[EcsOnArchetypeCreate::any]
++	local on_create_action = observable[EcsOnArchetypeCreate]
+ 	if not on_create_action then
+-		on_create_action = {} :: Map<Component, { Observer }>
+-		observable[EcsOnArchetypeCreate::any] = on_create_action
++		on_create_action = {} :: Map<i53, { Observer }>
++		observable[EcsOnArchetypeCreate] = on_create_action
+ 	end
+ 	local query_cache_on_create: { Observer } = on_create_action[id0]
+ 	if not query_cache_on_create then
+@@ -1914,8 +5454,8 @@ local function query_cached(query: QueryInner)
+ 
+ 	local on_delete_action = observable[EcsOnArchetypeDelete::any]
+ 	if not on_delete_action then
+-		on_delete_action = {} :: Map<Component, { Observer }>
+-		observable[EcsOnArchetypeDelete::any] = on_delete_action
++		on_delete_action = {} :: Map<i53, { Observer }>
++		observable[EcsOnArchetypeDelete] = on_delete_action
+ 	end
+ 	local query_cache_on_delete: { Observer } = on_delete_action[id0]
+ 	if not query_cache_on_delete then
+@@ -2485,6 +6025,7 @@ local function query_cached(query: QueryInner)
+ 	cached_query.iter = cached_query_iter
+ 	cached_query.has = cached_query_has
+ 	cached_query.fini = cached_query_fini
++	cached_query.sort = query_sort
+ 	setmetatable(cached_query, cached_query)
+ 	return cached_query
+ end
+@@ -2501,9 +6042,15 @@ local function query_has(query: QueryInner, entity: i53)
+ 	end
+ 
+ 	local columns_map = archetype.columns_map
++	local df_enabled = world.df_enabled
+ 	for _, component in query.filter_with :: {number} do
+ 		if not columns_map[component] then
+-			return false
++			if not df_enabled then
++				return false
++			end
++			if not dont_fragment_has(world, columns_map, entity, component) then
++				return false
++			end
+ 		end
+ 	end
+ 
+@@ -2513,6 +6060,9 @@ local function query_has(query: QueryInner, entity: i53)
+ 			if columns_map[component] then
+ 				return false
+ 			end
++			if df_enabled and dont_fragment_has(world, columns_map, entity, component) then
++				return false
++			end
+ 		end
+ 	end
+ 
+@@ -2526,6 +6076,7 @@ Query.iter = query_iter_init
+ Query.without = query_without
+ Query.with = query_with
+ Query.archetypes = query_archetypes
++Query.sort = query_sort
+ Query.cached = query_cached
+ Query.has = query_has
+ 
+@@ -2546,6 +6097,22 @@ local function world_each(world: world, id: i53): () -> i53
+ 		return NOOP :: () -> i53
+ 	end
+ 
++	local sparse = idr.sparse
++	if sparse then
++		-- Backward dense walk (ECR view-iterator shape): removing the
++		-- current entity during iteration is safe.
++		local entities = sparse.entities
++		local n = sparse.size
++		return function(): i53
++			local i = n - 1
++			n = i
++			if i < 0 then
++				return nil :: any
++			end
++			return buffer.readf64(entities, i * 8) :: any
++		end
++	end
++
+ 	local records = idr.records
+ 	local archetypes = world.archetypes
+ 	local archetype_id = next(records, nil) :: number
+@@ -2586,7 +6153,7 @@ local function ecs_bulk_insert(world: world, entity: i53, ids: { i53 }, values:
+ 	end
+ 	local from = r.archetype
+ 	local component_index = world.component_index
+-	if from == world.ROOT_ARCHETYPE then
++	if from == world.ROOT_ARCHETYPE and r.row == 0 then
+ 		local dst_types = table.clone(ids)
+ 		table.sort(dst_types)
+ 
+@@ -2596,7 +6163,7 @@ local function ecs_bulk_insert(world: world, entity: i53, ids: { i53 }, values:
+ 
+ 		for i, id in ids do
+ 			local value = values[i]
+-			if value then
++			if value ~= nil then
+ 				r.archetype.columns_map[id][r.row] = value
+ 			end
+ 		end
+@@ -2662,14 +6229,17 @@ local function ecs_bulk_insert(world: world, entity: i53, ids: { i53 }, values:
+ 		for i, id in ids do
+ 			local value = values[i] :: any
+ 			local idr = component_index[id]
+-			local on_change = idr.on_change
+-			if on_change then
+-				on_change(entity, id, value, from)
+-			end
+ 
++			-- Write before firing on_change so world:get inside the hook sees
++			-- the new value, matching world:set and the archetype-move branch.
+ 			if value ~= nil then
+ 				r.archetype.columns_map[id][r.row] = value
+ 			end
++
++			local on_change = idr.on_change
++			if on_change then
++				on_change(entity, id, value, from)
++			end
+ 		end
+ 	end
+ end
+@@ -2685,9 +6255,7 @@ local function ecs_bulk_remove(world: world, entity: i53, ids: { i53 })
+ 	local from = r.archetype
+ 	local component_index = world.component_index
+ 
+-	local remove: { [i53]: boolean } = {}
+-
+-	local columns_map = from.columns_map
++	local columns_map = from.owned_columns_map
+ 
+ 	local dst_types = table.clone(from.types) :: { i53 }
+ 
+@@ -2696,7 +6264,11 @@ local function ecs_bulk_remove(world: world, entity: i53, ids: { i53 })
+ 			continue
+ 		end
+ 
+-	    remove[id] = true
++		local at = table.find(dst_types, id)
++		if not at then
++			continue
++		end
++
+ 		local idr = component_index[id]
+ 
+ 		local on_remove = idr.on_remove
+@@ -2706,14 +6278,20 @@ local function ecs_bulk_remove(world: world, entity: i53, ids: { i53 })
+ 				error(ON_REMOVE_STRUCTURAL_WARN)
+ 			end
+ 		end
+-		local at = table.find(dst_types, id)
+ 		table.remove(dst_types, at)
+ 	end
+ 
+ 	local to = archetype_ensure(world, dst_types)
+ 
+ 	if from ~= to then
+-		entity_move(entity_index, entity, r, to)
++		if to == world.ROOT_ARCHETYPE then
++			-- Rowless-root invariant: vacate instead of appending.
++			archetype_delete(world, from, r.row)
++			r.archetype = to
++			r.row = 0
++		else
++			entity_move(entity_index, entity, r, to)
++		end
+ 	end
+ end
+ 
+@@ -2723,6 +6301,7 @@ local function world_new(DEBUG: boolean?)
+ 
+ 	local entity_index: entityindex = {
+ 		dense_array = eindex_dense_array,
++		dense_count = 0,
+ 		sparse_array = eindex_sparse_array,
+ 		alive_count = 0,
+ 		max_id = 0,
+@@ -2735,6 +6314,9 @@ local function world_new(DEBUG: boolean?)
+ 	local archetype_index = {} :: { [string]: archetype }
+ 	local archetypes = {} :: Map<i53, archetype>
+ 	local archetype_edges = {} :: { [number]: { [i53]: archetype } }
++	-- One-way exclusive replacement edges pointing INTO an archetype, for
++	-- cleanup on destroy: [dst archetype id] = { [src archetype id] = pair id }
++	local exclusive_back_edges = {} :: { [number]: { [number]: i53 } }
+ 
+ 	local observable = {}
+ 
+@@ -2752,11 +6334,15 @@ local function world_new(DEBUG: boolean?)
+ 
+ 	local world = {
+ 		archetype_edges = archetype_edges,
++		exclusive_back_edges = exclusive_back_edges,
+ 
+ 		component_index = component_index,
+ 		entity_index = entity_index,
+ 		ROOT_ARCHETYPE = nil :: any,
+ 
++		df_enabled = false,
++		df_records = {} :: Map<i53, componentrecord>,
++
+ 		archetypes = archetypes,
+ 		archetype_index = archetype_index,
+ 		max_archetype_id = 0,
+@@ -2764,6 +6350,9 @@ local function world_new(DEBUG: boolean?)
+ 
+ 		observable = observable,
+ 		signals = signals,
++
++		debug = DEBUG,
++		magic = JECS_MAGIC_NUMBER,
+ 	} :: world
+ 
+ 	local ROOT_ARCHETYPE = archetype_create(world, {}, "")
+@@ -2787,7 +6376,7 @@ local function world_new(DEBUG: boolean?)
+ 
+ 		local last = #src_entities
+ 		local id_types = from.types
+-		local columns_map = to.columns_map
++		local columns_map = to.owned_columns_map
+ 
+ 		if src_row ~= last then
+ 			for i, column in src_columns do
+@@ -2837,6 +6426,16 @@ local function world_new(DEBUG: boolean?)
+ 	)
+ 		local sourceRow = record.row
+ 		local from = record.archetype
++
++		if to == ROOT_ARCHETYPE then
++			-- Rowless-root invariant: movers into the root vacate the
++			-- source row instead of appending.
++			archetype_delete(world, from, sourceRow)
++			record.archetype = ROOT_ARCHETYPE
++			record.row = 0
++			return
++		end
++
+ 		local dst_row = archetype_append(entity, to)
+ 		inner_archetype_move(entity, to, dst_row, from, sourceRow)
+ 		record.archetype = to
+@@ -2885,6 +6484,17 @@ local function world_new(DEBUG: boolean?)
+ 			dst[cr] = id
+ 			to = archetype_ensure(world, dst)
+ 			edge[id] = to
++			-- One-way on purpose: a same-key mirror in the shared edge table
++			-- would let remove traversal from `to` resurrect the replaced
++			-- pair. Track the back-link separately so archetype_destroy can
++			-- clear this edge when `to` dies; otherwise a recycled target id
++			-- warm-hits a destroyed archetype.
++			local back = exclusive_back_edges[to.id]
++			if not back then
++				back = {}
++				exclusive_back_edges[to.id] = back
++			end
++			back[archetype.id] = id
+ 		end
+ 		return to
+ 	end
+@@ -2896,7 +6506,7 @@ local function world_new(DEBUG: boolean?)
+ 		end
+ 
+ 		local src = record.archetype
+-		local column = src.columns_map[id]
++		local column = src.owned_columns_map[id]
+ 		if column then
+ 			local idr = component_index[id]
+ 			column[record.row] = data
+@@ -2918,6 +6528,11 @@ local function world_new(DEBUG: boolean?)
+ 				local edge = archetype_edges[src.id]
+ 				to = edge[id]
+ 				if to == nil then
++					local idr_df = id_record_ensure(world, id)
++					if bit32.btest(idr_df.flags, ECS_ID_DONT_FRAGMENT) then
++						dont_fragment_insert(world, record, entity, id, idr_df, data, true)
++						return
++					end
+ 					if idr and (bit32.btest(idr.flags, ECS_ID_IS_EXCLUSIVE) == true) then
+ 						local cr = idr.records[src.id]
+ 						if cr then
+@@ -2958,6 +6573,11 @@ local function world_new(DEBUG: boolean?)
+ 					end
+ 				end
+ 			else
++				idr = component_index[id] or id_record_ensure(world, id)
++				if idr.sparse then
++					dont_fragment_insert(world, record, entity, id, idr, data, true)
++					return
++				end
+ 				local edges = archetype_edges
+ 				local edge = edges[src.id]
+ 
+@@ -2967,7 +6587,6 @@ local function world_new(DEBUG: boolean?)
+ 					edge[id] = to
+ 					edges[to.id][id] = src
+ 				end
+-				idr = component_index[id]
+ 			end
+ 
+ 			local ROOT_ARCHETYPE = ROOT_ARCHETYPE
+@@ -3000,7 +6619,7 @@ local function world_new(DEBUG: boolean?)
+ 		end
+ 
+ 		local src = record.archetype
+-		if src.columns_map[id] then
++		if src.owned_columns_map[id] then
+ 			return
+ 		end
+ 		local to: archetype
+@@ -3014,6 +6633,11 @@ local function world_new(DEBUG: boolean?)
+ 			local edge = archetype_edges[src.id]
+ 			to = edge[id]
+ 			if to == nil then
++				local idr_df = id_record_ensure(world, id)
++				if bit32.btest(idr_df.flags, ECS_ID_DONT_FRAGMENT) then
++					dont_fragment_insert(world, record, entity, id, idr_df, nil, false)
++					return
++				end
+ 				if idr and (bit32.btest(idr.flags, ECS_ID_IS_EXCLUSIVE) == true) then
+ 					local cr = idr.records[src.id]
+ 					if cr then
+@@ -3057,6 +6681,11 @@ local function world_new(DEBUG: boolean?)
+ 				end
+ 			end
+ 		else
++			idr = component_index[id] or id_record_ensure(world, id)
++			if idr.sparse then
++				dont_fragment_insert(world, record, entity, id, idr, nil, false)
++				return
++			end
+ 			local edges = archetype_edges
+ 			local edge = edges[src.id]
+ 
+@@ -3066,7 +6695,6 @@ local function world_new(DEBUG: boolean?)
+ 				edge[id] = to
+ 				edges[to.id][id] = src
+ 			end
+-			idr = component_index[id]
+ 		end
+ 
+ 		local ROOT_ARCHETYPE = ROOT_ARCHETYPE
+@@ -3086,6 +6714,43 @@ local function world_new(DEBUG: boolean?)
+ 		end
+ 	end
+ 
++	-- DontFragment sparse storage, including wildcard (R, *) lookups.
++	-- Callers gate on record.df, which implies df_enabled.
++	local function fetch_sparse(id: i53, entity: i53): any
++		local idr = component_index[id]
++		if not idr then
++			return nil
++		end
++		local sparse = idr.sparse
++		if not sparse then
++			-- (*, T) second-position wildcard: the record has no pool of its
++			-- own; resolve through the concrete DontFragment pairs targeting T.
++			local df_pairs = idr.dont_fragment_pairs
++			if df_pairs then
++				for _, idr_p in df_pairs do
++					local psparse = idr_p.sparse :: pool
++					local pidx = pool_find(psparse, entity)
++					if pidx ~= 0 then
++						return psparse.values[pidx]
++					end
++				end
++			end
++			return nil
++		end
++		local idx = pool_find(sparse, entity)
++		if idx == 0 then
++			return nil
++		end
++		local v = sparse.values[idx]
++		if sparse.wc then
++			local pair_id = if sparse.exclusive then v else v[1]
++			local psparse = component_index[pair_id].sparse :: pool
++			local pidx = pool_find(psparse, entity)
++			v = if pidx ~= 0 then psparse.values[pidx] else nil
++		end
++		return v
++	end
++
+ 	local function world_get(world: world, entity: i53,
+ 		a: i53, b: i53?, c: i53?, d: i53?, e: i53?): ...any
+ 		local record = entity_index_try_get_unsafe(entity)
+@@ -3098,16 +6763,28 @@ local function world_new(DEBUG: boolean?)
+ 		local columns_map = archetype.columns_map
+ 		local row = record.row
+ 
+-		local va = fetch(a, columns_map, row)
++		local col1 = columns_map[a]
++		local va = if col1 then col1[row] elseif record.df then fetch_sparse(a, entity) else nil
+ 
+ 		if not b then
+ 			return va
+ 		elseif not c then
+-			return va, fetch(b, columns_map, row)
++			local col2 = columns_map[b]
++			return va, if col2 then col2[row] elseif record.df then fetch_sparse(b, entity) else nil
+ 		elseif not d then
+-			return va, fetch(b, columns_map, row), fetch(c, columns_map, row)
++			local col2 = columns_map[b]
++			local col3 = columns_map[c]
++			return va,
++				if col2 then col2[row] elseif record.df then fetch_sparse(b, entity) else nil,
++				if col3 then col3[row] elseif record.df then fetch_sparse(c, entity) else nil
+ 		elseif not e then
+-			return va, fetch(b, columns_map, row), fetch(c, columns_map, row), fetch(d, columns_map, row)
++			local col2 = columns_map[b]
++			local col3 = columns_map[c]
++			local col4 = columns_map[d]
++			return va,
++				if col2 then col2[row] elseif record.df then fetch_sparse(b, entity) else nil,
++				if col3 then col3[row] elseif record.df then fetch_sparse(c, entity) else nil,
++				if col4 then col4[row] elseif record.df then fetch_sparse(d, entity) else nil
+ 		else
+ 			error("args exceeded")
+ 		end
+@@ -3136,8 +6813,11 @@ local function world_new(DEBUG: boolean?)
+ 			local idr_pair = component_index[ECS_PAIR(component, EcsWildcard)]
+ 
+ 			if idr_pair then
+-				for id, cr in idr_pair.wildcard_pairs do
+-					cr.on_add = on_add
++				local wc_pairs = idr_pair.wildcard_pairs
++				if wc_pairs then
++					for _, cr in wc_pairs do
++						cr.on_add = on_add
++					end
+ 				end
+ 				idr_pair.on_add = on_add
+ 			else
+@@ -3180,8 +6860,11 @@ local function world_new(DEBUG: boolean?)
+ 			local idr_pair = component_index[ECS_PAIR(component, EcsWildcard)]
+ 
+ 			if idr_pair then
+-				for _, cr in idr_pair.wildcard_pairs do
+-					cr.on_change = on_change
++				local wc_pairs = idr_pair.wildcard_pairs
++				if wc_pairs then
++					for _, cr in wc_pairs do
++						cr.on_change = on_change
++					end
+ 				end
+ 
+ 				idr_pair.on_change = on_change
+@@ -3223,8 +6906,11 @@ local function world_new(DEBUG: boolean?)
+ 			local idr_pair = component_index[ECS_PAIR(component, EcsWildcard)]
+ 
+ 			if idr_pair then
+-				for _, cr in idr_pair.wildcard_pairs do
+-					cr.on_remove = on_remove
++				local wc_pairs = idr_pair.wildcard_pairs
++				if wc_pairs then
++					for _, cr in wc_pairs do
++						cr.on_remove = on_remove
++					end
+ 				end
+ 
+ 				idr_pair.on_remove = on_remove
+@@ -3249,7 +6935,7 @@ local function world_new(DEBUG: boolean?)
+ 		end
+ 	end
+ 
+-	local function world_has(world: World, entity: i53,
++	local function world_has(world: world, entity: i53,
+ 		a: i53, b: i53?, c: i53?, d: i53?, e: i53?): boolean
+ 
+ 		local record = entity_index_try_get_unsafe(entity)
+@@ -3262,13 +6948,25 @@ local function world_new(DEBUG: boolean?)
+ 			return false
+ 		end
+ 
+-		local columns_map = archetype.columns_map
++			local columns_map = archetype.columns_map
+ 
+-		return columns_map[a] ~= nil and
++		if columns_map[a] ~= nil and
+ 			(b == nil or columns_map[b] ~= nil) and
+ 			(c == nil or columns_map[c] ~= nil) and
+ 			(d == nil or columns_map[d] ~= nil) and
+ 			(e == nil or error("args exceeded"))
++		then
++			return true
++		end
++
++		if not world.df_enabled then
++			return false
++		end
++
++		return dont_fragment_has(world, columns_map, entity, a) and
++			(b == nil or dont_fragment_has(world, columns_map, entity, b)) and
++			(c == nil or dont_fragment_has(world, columns_map, entity, c)) and
++			(d == nil or dont_fragment_has(world, columns_map, entity, d))
+ 	end
+ 
+ 	local function world_target(world: world, entity: i53, relation: i53, index: number?): i53?
+@@ -3283,15 +6981,35 @@ local function world_new(DEBUG: boolean?)
+ 		end
+ 
+ 		local r = ECS_PAIR(relation, EcsWildcard)
+-		local idr = world.component_index[r]
++		local idr = component_index[r]
+ 
+ 		if not idr then
+ 			return nil
+ 		end
+ 
+-		local archetype_id = archetype.id
++			local archetype_id = archetype.id
+ 		local count = idr.counts[archetype_id]
+ 		if not count then
++			local wsparse = idr.sparse
++			if wsparse then
++				local widx = pool_find(wsparse, entity)
++				if widx ~= 0 then
++					local v = wsparse.values[widx]
++					local nth_df = index or 0
++					local pair_id
++					if wsparse.exclusive then
++						if nth_df == 0 then
++							pair_id = v
++						end
++					else
++						pair_id = v[nth_df + 1]
++					end
++					if pair_id then
++						return entity_index_get_alive(world.entity_index,
++							ECS_PAIR_SECOND(pair_id))
++					end
++				end
++			end
+ 			return nil
+ 		end
+ 
+@@ -3311,9 +7029,9 @@ local function world_new(DEBUG: boolean?)
+ 		    ECS_PAIR_SECOND(nth))
+ 	end
+ 
+-	local NOOP = NOOP :: () -> i53
++	local function world_targets(world: world, entity: i53, relation: i53): () -> i53
++		local NOOP = NOOP :: () -> i53
+ 
+-	local function world_targets(world: world, entity: i53, relation: i53): () -> i53?
+ 		local record = entity_index_try_get_unsafe(entity)
+ 		if not record then
+ 			return NOOP
+@@ -3335,6 +7053,35 @@ local function world_new(DEBUG: boolean?)
+ 		local archetype_id = archetype.id
+ 		local count = idr.counts[archetype_id]
+ 		if not count then
++			local wsparse = idr.sparse
++			if wsparse then
++				local widx = pool_find(wsparse, entity)
++				if widx ~= 0 then
++					local v = wsparse.values[widx]
++					if wsparse.exclusive then
++						-- Exclusive relations only ever have one target, so match
++						-- the iterator protocol without allocating a `{ v }` list.
++						local done = false
++						return function(): i53
++							if done then
++								return nil :: any
++							end
++							done = true
++							return entity_index_get_alive(entity_index, ECS_PAIR_SECOND(v)) :: any
++						end
++					end
++					local list: { i53 } = v
++					local i = 0
++					local n = #list
++					return function(): i53
++						i += 1
++						if i > n then
++							return nil :: any
++						end
++						return entity_index_get_alive(entity_index, ECS_PAIR_SECOND(list[i])) :: any
++					end
++				end
++			end
+ 			return NOOP
+ 		end
+ 
+@@ -3345,9 +7092,9 @@ local function world_new(DEBUG: boolean?)
+ 		local sparse_array = entity_index.sparse_array
+ 		local dense_array = entity_index.dense_array
+ 
+-		return function(): i53?
++		return function(): i53
+ 			if nth == end_count then
+-				return nil
++				return nil::any
+ 			end
+ 			local target = dense_array[sparse_array[ECS_PAIR_SECOND(archetype_types[nth])].dense]
+ 			nth += 1
+@@ -3367,63 +7114,110 @@ local function world_new(DEBUG: boolean?)
+ 			local index = ECS_ID(entity)
+ 			local alive_count = entity_index.alive_count
+ 			local r = sparse_array[index]
++
+ 			if r then
+ 				local dense = r.dense
+ 
+-				-- If dense == 0, this is a pre-populated entry from world:range()
+-				-- Just add the entity to the end of the dense array
+-				if dense == 0 then
+-					alive_count += 1
+-					entity_index.alive_count = alive_count
+-					r.dense = alive_count
+-					dense_array[alive_count] = entity
+-					return entity
+-				end
++				if dense ~= 0 then
++					local current = dense_array[dense]
++
++					-- The record can be detached when an out-of-range dead id is
++					-- deliberately skipped by the partitioned auto allocator. Only
++					-- treat this slot as the record's current generation when its
++					-- entity index still matches.
++					if current and ECS_ID(current) == index then
++						if dense <= alive_count then
++							ecs_assert(current == entity,
++								"Entity is alive with a different generation")
++							return entity
++						end
++
++						-- Revive the requested generation by swapping its dead slot
++						-- with the first slot outside the alive region, as Flecs does.
++						local next_count = alive_count + 1
++						dense_array[dense] = entity
++						if dense ~= next_count then
++							local displaced = dense_array[next_count]
++							dense_array[next_count] = entity
++							dense_array[dense] = displaced
++
++							if displaced then
++								local displaced_record = sparse_array[ECS_ID(displaced)]
++								if displaced_record and displaced_record.dense == next_count then
++									displaced_record.dense = dense
++								end
++							end
++						end
+ 
+-				-- If dense > 0, check if there's an existing entity at that position
+-				local existing_entity = dense_array[dense]
+-				if existing_entity and existing_entity ~= entity then
+-					alive_count += 1
+-					entity_index.alive_count = alive_count
+-					r.dense = alive_count
+-					dense_array[alive_count] = entity
+-					return entity
++						entity_index.alive_count = next_count
++						r.dense = next_count
++						return entity
++					end
+ 				end
+ 
+-				return entity
+ 			else
+ 				local max_id = entity_index.max_id
++				local range_end = entity_index.range_end
+ 
+-				if index > max_id then
++				if index > max_id and (range_end == nil or index < range_end) then
+ 					for i = max_id + 1, index - 1 do
+ 						sparse_array[i] = { dense = 0, row = 0, archetype = ROOT_ARCHETYPE }
+ 					end
+ 					entity_index.max_id = index
+ 				end
+ 
+-				alive_count += 1
+-				entity_index.alive_count = alive_count
+-				dense_array[alive_count] = entity
+-
+-				r = { dense = alive_count, row = 0, archetype = ROOT_ARCHETYPE }
++				r = { dense = 0, row = 0, archetype = ROOT_ARCHETYPE } :: record
+ 				sparse_array[index] = r
++			end
+ 
+-				return entity
++			-- A new id, dense-zero range placeholder, or detached out-of-range
++			-- record has no dead slot that can be swapped into place. Append it
++			-- to the dense array, then move it across the alive boundary while
++			-- preserving any dead id already there.
++			local next_count = alive_count + 1
++			local displaced = dense_array[next_count]
++			if displaced then
++				local tail = #dense_array + 1
++				dense_array[tail] = displaced
++
++				local displaced_record = sparse_array[ECS_ID(displaced)]
++				if displaced_record and displaced_record.dense == next_count then
++					displaced_record.dense = tail
++				end
+ 			end
++
++			entity_index.alive_count = next_count
++			local ensured_record = r :: record
++			ensured_record.dense = next_count
++			dense_array[next_count] = entity
++			return entity
+ 		end
+ 
+ 		local alive_count = entity_index.alive_count
+-		local max_id = entity_index.max_id
+ 		local next_count = alive_count + 1
+-		if alive_count < max_id then
+-			entity = dense_array[next_count]
+-			if entity then 
++		local range_end = entity_index.range_end
++		-- Recycle dense_array[next_count] only when its id falls inside the
++		-- auto-gen pool [range_begin, range_end). The old proxy
++		-- `alive_count < max_id` silently misclassifies two cases:
++		--   * after a delete that followed an out-of-range explicit
++		--     world:entity(id), dense_array[next_count] holds a real dead
++		--     entity but the proxy says "nothing to recycle", so the mint
++		--     below overwrites the dead slot and aliases the record.
++		--   * after a delete of an entity claimed via a pre-populated slot
++		--     (id < range_begin), the proxy can recycle it even though the
++		--     id is outside the pool the auto-allocator owns.
++		-- An id-based check fixes both: in-range deletes recycle, escape-
++		-- hatch claims stay dead.
++		local recycled = dense_array[next_count]
++		if recycled then
++			local recycled_index = ECS_ENTITY_T_LO(recycled)
++			local range_begin = entity_index.range_begin or 0
++			if range_end == nil or (recycled_index >= range_begin and recycled_index < range_end) then
+ 				entity_index.alive_count = next_count
+-				return entity
++				return recycled
+ 			end
+ 		end
+-		local id = max_id + 1
+-		local range_end = entity_index.range_end
++		local id = entity_index.max_id + 1
+ 		ecs_assert(range_end == nil or id < range_end, ECS_INTERNAL_ERROR_INCOMPATIBLE_ENTITY)
+ 		entity_index.max_id = id
+ 		entity_index.alive_count = next_count
+@@ -3439,8 +7233,8 @@ local function world_new(DEBUG: boolean?)
+ 		end
+ 		local from = record.archetype
+ 
+-		if from.columns_map[id] then
+-			local idr = world.component_index[id]
++		if from.owned_columns_map[id] then
++			local idr = component_index[id]
+ 			local on_remove = idr.on_remove
+ 
+ 			if on_remove then
+@@ -3450,253 +7244,379 @@ local function world_new(DEBUG: boolean?)
+ 			local to = archetype_traverse_remove(world, id, record.archetype)
+ 
+ 			inner_entity_move(entity, record, to)
++		elseif world.df_enabled then
++			local idr = component_index[id]
++			if idr and idr.sparse then
++				dont_fragment_remove(world, entity, id, idr)
++			end
+ 		end
+ 	end
+ 
++	local dont_fragment_delete_component
++	local dont_fragment_delete_relation
++	local dont_fragment_delete_target
++
+ 	local function world_delete(world: world, entity: i53)
+ 		local record = entity_index_try_get_unsafe(entity)
+ 		if not record then
+ 			return
+ 		end
+ 
+-		local archetype = record.archetype
+-		if archetype then
+-			-- NOTE(marcus): It is important to remove the data and invoke
+-			-- the hooks before the archetype and certain component records are
+-			-- invalidated or else it will have a nasty runtime error.
+-			for _, id in archetype.types do
+-				local cr = component_index[id]
+-				local on_remove = cr.on_remove
+-				if on_remove then
+-					on_remove(entity, id, true)
++		if record.cr then
++			local component_index = world.component_index
++			local archetypes = world.archetypes
++			local tgt = ECS_PAIR(EcsWildcard, entity)
++			local rel = ECS_PAIR(entity, EcsWildcard)
++
++			local idr_t = component_index[tgt]
++			local idr = component_index[entity]
++			local idr_r = component_index[rel]
++
++			if idr then
++				if bit32.btest(idr.flags, ECS_ID_MARKED_FOR_DELETE) then
++					idr = nil :: any
++				else
++					idr.flags = bit32.bor(idr.flags, ECS_ID_MARKED_FOR_DELETE)
+ 				end
+ 			end
+-			archetype_delete(world, record.archetype, record.row)
+-		end
+-
+-		local component_index = world.component_index
+-		local archetypes = world.archetypes
+-		local tgt = ECS_PAIR(EcsWildcard, entity)
+-		local rel = ECS_PAIR(entity, EcsWildcard)
+-
+-		local idr_t = component_index[tgt]
+-		local idr = component_index[entity]
+-		local idr_r = component_index[rel]
+-
+-		--[[
+-			It is important to note that `world_delete` uses a depth-first
+-			traversal that prunes the children of the entity before their
+-			parents. archetypes can be destroyed and removed from component
+-			records while we're still iterating over those records. The
+-			recursive nature of this function entails that archetype ids can be
+-			removed from component records (idr_t.records, idr.records and
+-			idr_r.records) while that collection is still being iterated over.
+-			If we try to look up an archetype by ID after it has been destroyed,
+-			we get nil. This is hard to debug because the removal happens deep
+-			in the opaque call stack. Essentially the entry is removed on a
+-			first come first serve basis.
+-
+-			The solution is to separate processing from cleanup. We first iterate
+-			over the archetypes to process entities (move them, call hooks, etc.),
+-			but do not destroy the archetypes yet. Then we iterate again to destroy
+-			the archetypes, but check if they still exist (archetypes[archetype_id]
+-			is not nil) before destroying. This handles the case where recursive
+-			world_delete calls have already destroyed some archetypes.
+-
+-										- Marcus
+-		]]
+-		if idr then
+-			local flags = idr.flags
+-			if (bit32.btest(flags, ECS_ID_DELETE) == true) then
+-				for archetype_id in idr.records do
+-					local idr_archetype = archetypes[archetype_id]
+-
+-					local entities = idr_archetype.entities
+-					local n = #entities
+-					for i = n, 1, -1 do
+-						world_delete(world, entities[i])
+-					end
+-					archetype_destroy(world, idr_archetype)
++			if idr_t then
++				if bit32.btest(idr_t.flags, ECS_ID_MARKED_FOR_DELETE) then
++					idr_t = nil :: any
++				else
++					idr_t.flags = bit32.bor(idr_t.flags, ECS_ID_MARKED_FOR_DELETE)
+ 				end
+-			else
+-				local on_remove = idr.on_remove
+-				if on_remove then
++			end
++			if idr_r then
++				if bit32.btest(idr_r.flags, ECS_ID_MARKED_FOR_DELETE) then
++					idr_r = nil :: any
++				else
++					idr_r.flags = bit32.bor(idr_r.flags, ECS_ID_MARKED_FOR_DELETE)
++				end
++			end
++			-- Keep handles for unmarking: the cascade nils the locals as it
++			-- consumes them.
++			local marked_idr, marked_idr_t, marked_idr_r = idr, idr_t, idr_r
++
++			if idr and idr.sparse then
++				dont_fragment_delete_component(entity, idr)
++				idr = nil :: any
++			end
++			if idr_r and idr_r.sparse then
++				dont_fragment_delete_relation(rel, idr_r)
++				idr_r = nil :: any
++			end
++			if idr_t and idr_t.dont_fragment_pairs then
++				dont_fragment_delete_target(idr_t)
++			end
++
++			--[[
++				It is important to note that `world_delete` uses a depth-first
++				traversal that prunes the children of the entity before their
++				parents. archetypes can be destroyed and removed from component
++				records while we're still iterating over those records. The
++				recursive nature of this function entails that archetype ids can be
++				removed from component records (idr_t.records, idr.records and
++				idr_r.records) while that collection is still being iterated over.
++				If we try to look up an archetype by ID after it has been destroyed,
++				we get nil. This is hard to debug because the removal happens deep
++				in the opaque call stack. Essentially the entry is removed on a
++				first come first serve basis.
++
++				The solution is to separate processing from cleanup. We first iterate
++				over the archetypes to process entities (move them, call hooks, etc.),
++				but do not destroy the archetypes yet. Then we iterate again to destroy
++				the archetypes, but check if they still exist (archetypes[archetype_id]
++				is not nil) before destroying. This handles the case where recursive
++				world_delete calls have already destroyed some archetypes.
++
++											- Marcus
++			]]
++			if idr then
++				local flags = idr.flags
++				if (bit32.btest(flags, ECS_ID_DELETE) == true) then
+ 					for archetype_id in idr.records do
+ 						local idr_archetype = archetypes[archetype_id]
+-						local to = archetype_traverse_remove(world, entity, idr_archetype)
++						if not idr_archetype then
++							-- Destroyed by a recursive delete while iterating.
++							continue
++						end
++
+ 						local entities = idr_archetype.entities
+-						local n = #entities
+-						for i = n, 1, -1 do
+-							local e = entities[i]
+-							on_remove(e, entity)
+-							local r = eindex_sparse_array[ECS_ID(e :: number)]
+-							local from = r.archetype
+-							if from ~= idr_archetype then
+-								to = archetype_traverse_remove(world, entity, from)
+-							end
+-							inner_entity_move(e, r, to)
++						-- Re-read length each step: a recursive delete can
++						-- move an entity INTO this archetype mid-purge; a
++						-- fixed reverse loop would let it escape the cascade
++						-- with a dangling pair.
++						local i = #entities
++						while i > 0 do
++							world_delete(world, entities[i])
++							i = #entities
+ 						end
+ 						archetype_destroy(world, idr_archetype)
+ 					end
+ 				else
+-					for archetype_id in idr.records do
+-						local idr_archetype = archetypes[archetype_id]
+-						local to = archetype_traverse_remove(world, entity, idr_archetype)
+-						local entities = idr_archetype.entities
+-						local n = #entities
+-						for i = n, 1, -1 do
+-							local e = entities[i]
+-							entity_move(entity_index, e, eindex_sparse_array[ECS_ID(e :: number)], to)
++					local on_remove = idr.on_remove
++					if on_remove then
++						for archetype_id in idr.records do
++							local idr_archetype = archetypes[archetype_id]
++							local to = archetype_traverse_remove(world, entity, idr_archetype)
++							if to == idr_archetype then
++								-- Archetype matches via component inheritance only;
++								-- entities own a derived component, not this one.
++								-- Drop the inherited alias instead of moving anyone.
++								idr_archetype.columns_map[entity] = nil
++							else
++								local entities = idr_archetype.entities
++								local n = #entities
++								for i = n, 1, -1 do
++									local e = entities[i]
++									on_remove(e, entity)
++									local r = eindex_sparse_array[ECS_ID(e :: number)]
++									inner_entity_move(e, r, to)
++								end
++							end
++							archetype_destroy(world, idr_archetype)
++						end
++					else
++						for archetype_id in idr.records do
++							local idr_archetype = archetypes[archetype_id]
++							local to = archetype_traverse_remove(world, entity, idr_archetype)
++							if to == idr_archetype then
++								idr_archetype.columns_map[entity] = nil
++							else
++								local entities = idr_archetype.entities
++								local n = #entities
++								for i = n, 1, -1 do
++									local e = entities[i]
++									local r = eindex_sparse_array[ECS_ID(e :: number)]
++									inner_entity_move(e, r, to)
++								end
++							end
++							archetype_destroy(world, idr_archetype)
+ 						end
+-						archetype_destroy(world, idr_archetype)
+ 					end
++					component_index[entity] = nil
+ 				end
+ 			end
+-		end
+-
+-		if idr_t then
+-			local to_remove = {} :: { [i53]: componentrecord }
+-			local cache = idr_t.cache
+-			for i = #cache, 1, -1 do 
+-				local archetype_id = cache[i]
+-				local idr_t_archetype = archetypes[archetype_id]
+-				if not idr_t_archetype then
+-					continue
+-				end
+-				local idr_t_types = idr_t_archetype.types
+-				local entities = idr_t_archetype.entities
+-                local deleted_any  = false
+-                local remove_count = 0
+ 
+-				for _, id in idr_t_types do
+-					if not ECS_IS_PAIR(id) then
+-						continue
+-					end
+-					local object = entity_index_get_alive(entity_index, ECS_PAIR_SECOND(id))
+-					if object ~= entity then
++			if idr_t then
++				local entity_lo = ECS_ENTITY_T_LO(entity)
++				local to_remove = {} :: { [i53]: componentrecord }
++				local cache = idr_t.cache
++				-- Forward, dynamic-length walk: deleting a child can move a
++				-- surviving entity into a NEW archetype that also targets this
++				-- entity (e.g. stripping pair(R, child) lands it in
++				-- {pair(X, self)}). That archetype is appended to the cache
++				-- mid-cascade; a fixed reverse loop would never visit it,
++				-- leaving a dangling pair that re-binds to the recycled id.
++				-- `i` is incremented before any `continue` so the loop stays
++				-- correct.
++				local i = 0
++				while i < #cache do
++					i += 1
++					local archetype_id = cache[i]
++					local idr_t_archetype = archetypes[archetype_id]
++					if not idr_t_archetype then
+ 						continue
+ 					end
+-					local id_record = component_index[id]
+-					local has_delete = bit32.btest(id_record.flags, ECS_ID_DELETE)
+-					if has_delete then
+-						deleted_any = true
+-						break
+-					else
++					local idr_t_types = idr_t_archetype.types
++					local entities = idr_t_archetype.entities
++	                local deleted_any  = false
++	                local remove_count = 0
++
++					for _, id in idr_t_types do
++						if not ECS_IS_PAIR(id) then
++							continue
++						end
++						-- Match on the raw target index: pair ids strip the
++						-- generation, and a liveness-resolved compare would
++						-- skip remaining holders once a cyclic cascade has
++						-- already killed this entity re-entrantly, leaving
++						-- their pairs dangling.
++						if ECS_PAIR_SECOND(id) ~= entity_lo then
++							continue
++						end
++						local id_record = component_index[id]
++						local has_delete = bit32.btest(id_record.flags, ECS_ID_DELETE)
++						if has_delete then
++							deleted_any = true
++							break
++						else
+                         to_remove[id] = id_record
+                         remove_count += 1
++						end
+ 					end
+-				end
+ 
+-				if deleted_any then
+-					for row = #entities, 1, -1 do
+-						world_delete(world, entities[row])
+-					end
+-					archetype_destroy(world, idr_t_archetype)
+-					continue
+-				end
+-				if remove_count == 1 then
+-					local id, id_record = next(to_remove)
+-					local to = archetype_traverse_remove(world, id::i53, idr_t_archetype)
+-					local on_remove = id_record.on_remove
+-					for row = #entities, 1, -1 do
+-						local child = entities[row]
+-						local r = entity_index_try_get_unsafe(child)::record
+-						local dst = to
+-						if on_remove then
+-							on_remove(child, id :: i53)
++					if deleted_any then
++						if remove_count > 0 then
++							-- Entries accumulated before the Delete-policy
++							-- pair was found must not leak into the next
++							-- archetype's removal set, or unrelated
++							-- components get stripped there.
++							table.clear(to_remove)
+ 						end
+-						inner_entity_move(child, r, dst)
+-					end
+-					archetype_destroy(world, idr_t_archetype)
+-				else
+-					local dst_types = table.clone(idr_t_archetype.types)
+-					for id in to_remove do
+-						table.remove(dst_types, table.find(dst_types, id))
++						local row = #entities
++						while row > 0 do
++							world_delete(world, entities[row])
++							row = #entities
++						end
++						archetype_destroy(world, idr_t_archetype)
++						continue
+ 					end
++					if remove_count == 1 then
++						local id, id_record = next(to_remove)
++						local to = archetype_traverse_remove(world, id::i53, idr_t_archetype)
++						local on_remove = id_record.on_remove
++						for row = #entities, 1, -1 do
++							local child = entities[row]
++							local r = entity_index_try_get_unsafe(child)::record
++							local dst = to
++							if on_remove then
++								on_remove(child, id :: i53)
++							end
++							inner_entity_move(child, r, dst)
++						end
++						archetype_destroy(world, idr_t_archetype)
++					else
++						local dst_types = table.clone(idr_t_archetype.types)
++						for id in to_remove do
++							table.remove(dst_types, table.find(dst_types, id))
++						end
+ 
+-					local dst = archetype_ensure(world, dst_types)
++						local dst = archetype_ensure(world, dst_types)
+ 
+-					for row = #entities, 1, -1 do
+-						local child = entities[row]
+-						local r = entity_index_try_get_unsafe(child) :: record
+-						for id, component_record in to_remove do
+-							local on_remove = component_record.on_remove
+-							if on_remove then
+-								on_remove(child, id)
++						for row = #entities, 1, -1 do
++							local child = entities[row]
++							local r = entity_index_try_get_unsafe(child) :: record
++							for id, component_record in to_remove do
++								local on_remove = component_record.on_remove
++								if on_remove then
++									on_remove(child, id)
++								end
+ 							end
++							inner_entity_move(child, r, dst)
+ 						end
+-						inner_entity_move(child, r, dst)
++						archetype_destroy(world, idr_t_archetype)
+ 					end
+-					archetype_destroy(world, idr_t_archetype)
+-				end
+ 
+-				table.clear(to_remove)
++					table.clear(to_remove)
++				end
+ 			end
+-		end
+ 
+-		if idr_r then
+-			local archetype_ids = idr_r.records
+-			local flags = idr_r.flags
+-			local has_delete_policy = bit32.btest(flags, ECS_ID_DELETE)
+-			if has_delete_policy then
+-				for archetype_id in archetype_ids do
+-					local idr_r_archetype = archetypes[archetype_id]
+-					local entities = idr_r_archetype.entities
+-					local n = #entities
+-					for i = n, 1, -1 do
+-						world_delete(world, entities[i])
++			if idr_r then
++				local archetype_ids = idr_r.records
++				local flags = idr_r.flags
++				local has_delete_policy = bit32.btest(flags, ECS_ID_DELETE)
++				if has_delete_policy then
++					for archetype_id in archetype_ids do
++						local idr_r_archetype = archetypes[archetype_id]
++						if not idr_r_archetype then
++							-- Destroyed by a recursive delete while iterating.
++							continue
++						end
++						local entities = idr_r_archetype.entities
++						local i = #entities
++						while i > 0 do
++							world_delete(world, entities[i])
++							i = #entities
++						end
++						archetype_destroy(world, idr_r_archetype)
+ 					end
+-					archetype_destroy(world, idr_r_archetype)
+-				end
+-			else
+-				local counts = idr_r.counts
+-				local records = idr_r.records
+-				for archetype_id in archetype_ids do
+-					local idr_r_archetype = archetypes[archetype_id]
+-					-- local node = idr_r_archetype
+-					local entities = idr_r_archetype.entities
+-					local tr = records[archetype_id]
+-					local tr_count = counts[archetype_id]
+-					local idr_r_types = idr_r_archetype.types
+-					local dst = table.clone(idr_r_types)
+-					for i = tr, tr + tr_count - 1 do
+-						local id = idr_r_types[i]
+-						local at = table.find(dst, id)
+-						if at then
+-							table.remove(dst, at)
+-						end
+-						-- node = archetype_traverse_remove(world, id, node)
+-						local on_remove = component_index[id].on_remove
+-						if on_remove then
+-							-- NOTE(marcus): Since hooks can move the entities
+-							-- assumptions about which archetype it jumps to is
+-							-- diminished. We assume that people who delete
+-							-- relation will never have hooks on them.
+-							for _, entity in entities do
+-								on_remove(entity, id)
++				else
++					local counts = idr_r.counts
++					local records = idr_r.records
++					for archetype_id in archetype_ids do
++						local idr_r_archetype = archetypes[archetype_id]
++						-- local node = idr_r_archetype
++						local entities = idr_r_archetype.entities
++						local tr = records[archetype_id]
++						local tr_count = counts[archetype_id]
++						local idr_r_types = idr_r_archetype.types
++						local dst = table.clone(idr_r_types)
++						for i = tr, tr + tr_count - 1 do
++							local id = idr_r_types[i]
++							local at = table.find(dst, id)
++							if at then
++								table.remove(dst, at)
++							end
++							-- node = archetype_traverse_remove(world, id, node)
++							local on_remove = component_index[id].on_remove
++							if on_remove then
++								-- NOTE(marcus): Since hooks can move the entities
++								-- assumptions about which archetype it jumps to is
++								-- diminished. We assume that people who delete
++								-- relation will never have hooks on them.
++								for _, entity in entities do
++									on_remove(entity, id)
++								end
+ 							end
+ 						end
+-					end
+ 
+-					local node = archetype_ensure(world, dst)
++						local node = archetype_ensure(world, dst)
+ 
+-					for i = #entities, 1, -1 do
+-						local e = entities[i]
+-						local r = entity_index_try_get_unsafe(e) :: record
+-						inner_entity_move(e, r, node)
++						for i = #entities, 1, -1 do
++							local e = entities[i]
++							local r = entity_index_try_get_unsafe(e) :: record
++							inner_entity_move(e, r, node)
++						end
++						archetype_destroy(world, idr_r_archetype)
+ 					end
+-					archetype_destroy(world, idr_r_archetype)
+ 				end
+ 			end
++
++			-- Clearing the bit on an orphaned record does nothing bad
++			if marked_idr then
++				marked_idr.flags = bit32.band(marked_idr.flags, ECS_ID_MARKED_FOR_DELETE_CLEAR)
++			end
++			if marked_idr_t then
++				marked_idr_t.flags = bit32.band(marked_idr_t.flags, ECS_ID_MARKED_FOR_DELETE_CLEAR)
++			end
++			if marked_idr_r then
++				marked_idr_r.flags = bit32.band(marked_idr_r.flags, ECS_ID_MARKED_FOR_DELETE_CLEAR)
++			end
++
++			if eindex_dense_array[record.dense] ~= entity then
++				return
++			end
++		end
++
++		if record.df then
++			dont_fragment_entity_sweep(world, entity, true)
++			record.df = nil
++		end
++
++		local archetype = record.archetype
++		if archetype and record.row ~= 0 then
++			-- NOTE(marcus): It is important to remove the data and invoke
++			-- the hooks before the archetype and certain component records are
++			-- invalidated or else it will have a nasty runtime error.
++			local id_types = archetype.types
++			for i, cr in archetype.idrs do
++				local on_remove = cr.on_remove
++				if on_remove then
++					on_remove(entity, id_types[i], true)
++				end
++			end
++			-- Re-read after hooks: an on_remove may have moved the entity to
++			-- another archetype/row via structural changes.
++			local row = record.row
++			if row ~= 0 then
++				archetype_delete(world, record.archetype, row)
++			end
+ 		end
+ 
++
++
+ 		local dense = record.dense
+ 		local i_swap = entity_index.alive_count
+ 		entity_index.alive_count = i_swap - 1
+ 
+ 		local e_swap = eindex_dense_array[i_swap]
+ 		local r_swap = entity_index_try_get_any(e_swap) :: record
+-		r_swap.dense = dense
++		-- It is possible that this is a record of zombie entity, in which case
++		-- we do not want to recycle that range.
++		if r_swap.dense ~= 0 then
++			r_swap.dense = dense
++		end
+ 		record.archetype = ROOT_ARCHETYPE
+ 		record.row = 0
+ 		record.dense = i_swap
+@@ -3705,21 +7625,157 @@ local function world_new(DEBUG: boolean?)
+ 		eindex_dense_array[i_swap] = ECS_GENERATION_INC(entity)
+ 	end
+ 
++	function dont_fragment_delete_component(component: i53, idr: componentrecord)
++		local sparse = idr.sparse :: pool
++		if bit32.btest(idr.flags, ECS_ID_DELETE) then
++			local n = sparse.size
++			local holders = table.create(n) :: {i53}
++			local ebuf = sparse.entities
++			for i = 1, n do
++				holders[i] = buffer.readf64(ebuf, (i - 1) * 8)
++			end
++			for i = n, 1, -1 do
++				world_delete(world, holders[i])
++			end
++		else
++			local on_remove = idr.on_remove
++			if on_remove then
++				local n = sparse.size
++				local holders = table.create(n) :: {i53}
++				local ebuf = sparse.entities
++				for i = 1, n do
++					holders[i] = buffer.readf64(ebuf, (i - 1) * 8)
++				end
++				for i = n, 1, -1 do
++					local e = holders[i]
++					if pool_find(sparse, e) ~= 0 then
++						on_remove(e, component)
++					end
++				end
++			end
++			pool_reset(sparse)
++		end
++		world.df_records[component] = nil :: any
++		component_index[component] = nil :: any
++	end
++
++	function dont_fragment_delete_relation(rel: i53, idr_r: componentrecord)
++		local wsparse = idr_r.sparse :: pool
++		local n = wsparse.size
++		local holders = table.create(n) :: {i53}
++		local ebuf = wsparse.entities
++		for i = 1, n do
++			holders[i] = buffer.readf64(ebuf, (i - 1) * 8)
++		end
++		if bit32.btest(idr_r.flags, ECS_ID_DELETE) then
++			for i = n, 1, -1 do
++				world_delete(world, holders[i])
++			end
++		else
++			for i = n, 1, -1 do
++				local e = holders[i]
++				local widx = pool_find(wsparse, e)
++				if widx ~= 0 then
++					local v = wsparse.values[widx]
++					if wsparse.exclusive then
++						local idr_p = component_index[v]
++						local on_remove = idr_p.on_remove
++						if on_remove and pool_find(idr_p.sparse :: pool, e) ~= 0 then
++							on_remove(e, v)
++						end
++					else
++						for j = #v, 1, -1 do
++							local pair_id = v[j]
++							local idr_p = component_index[pair_id]
++							local on_remove = idr_p.on_remove
++							if on_remove and pool_find(idr_p.sparse :: pool, e) ~= 0 then
++								on_remove(e, pair_id)
++							end
++						end
++					end
++				end
++			end
++		end
++		local wc_pairs = idr_r.wildcard_pairs
++		if wc_pairs then
++			for pair_id, idr_p in wc_pairs do
++				pool_reset(idr_p.sparse :: pool)
++				component_index[pair_id] = nil :: any
++				local idr_t2 = component_index[ECS_PAIR(EcsWildcard, ECS_PAIR_SECOND(pair_id))]
++				if idr_t2 then
++					local df_pairs = idr_t2.dont_fragment_pairs
++					if df_pairs then
++						df_pairs[pair_id] = nil :: any
++					end
++				end
++			end
++		end
++		pool_reset(wsparse)
++		world.df_records[rel] = nil :: any
++		component_index[rel] = nil :: any
++	end
++
++	function dont_fragment_delete_target(idr_t: componentrecord)
++		local df_pairs = idr_t.dont_fragment_pairs :: Map<i53, componentrecord>
++		for pair_id, idr_p in df_pairs do
++			local sparse = idr_p.sparse :: pool
++			local n = sparse.size
++			local holders = table.create(n) :: {i53}
++			local ebuf = sparse.entities
++			for i = 1, n do
++				holders[i] = buffer.readf64(ebuf, (i - 1) * 8)
++			end
++			if bit32.btest(idr_p.flags, ECS_ID_DELETE) then
++				for i = n, 1, -1 do
++					world_delete(world, holders[i])
++				end
++			else
++				for i = n, 1, -1 do
++					local e = holders[i]
++					if pool_find(sparse, e) ~= 0 then
++						dont_fragment_remove(world, e, pair_id, idr_p)
++					end
++				end
++			end
++			component_index[pair_id] = nil :: any
++			local idr_wc = component_index[ECS_PAIR(ECS_PAIR_FIRST(pair_id), EcsWildcard)]
++			if idr_wc then
++				local wc_pairs = idr_wc.wildcard_pairs
++				if wc_pairs then
++					wc_pairs[pair_id] = nil :: any
++				end
++			end
++			df_pairs[pair_id] = nil :: any
++		end
++		idr_t.dont_fragment_pairs = nil
++	end
++
+ 	local function world_clear(world: world, entity: i53)
+ 		local record = entity_index_try_get_unsafe(entity)
+ 		if not record then
+ 			return
+ 		end
+ 
++		if record.df then
++			dont_fragment_entity_sweep(world, entity)
++			record.df = nil
++		end
++
++		-- Entities with only DontFragment components never own a row; the
++		-- sweep above is their entire clear. Re-read row: sweep hooks can
++		-- also strip the last fragmenting component.
++		if record.row == 0 then return end
++
+ 		local archetype = record.archetype
+-		for _, id in archetype.types do
+-			local idr = component_index[id]
++		local id_types = archetype.types
++		for i, idr in archetype.idrs do
+ 			local on_remove = idr.on_remove
+ 			if on_remove then
+-				on_remove(entity, id)
++				on_remove(entity, id_types[i])
+ 			end
+ 		end
+ 		archetype_delete(world, record.archetype, record.row)
++
+ 		record.archetype = world.ROOT_ARCHETYPE
+ 		record.row = 0
+ 	end
+@@ -3733,7 +7789,15 @@ local function world_new(DEBUG: boolean?)
+ 	end
+ 
+ 	local function world_contains(world: world, entity: i53): boolean
+-		return entity_index_is_alive(entity_index, entity)
++		local r = eindex_sparse_array[ECS_ID(entity)]
++		if not r then
++			return false
++		end
++		local dense = r.dense
++		if dense == 0 or dense > entity_index.alive_count then
++			return false
++		end
++		return eindex_dense_array[dense] == entity
+ 	end
+ 
+ 	local function world_cleanup(world: world)
+@@ -3901,6 +7965,8 @@ local function world_new(DEBUG: boolean?)
+ 	world_set(world, EcsWildcard, EcsName, "jecs.Wildcard")
+ 	world_set(world, EcsChildOf, EcsName, "jecs.ChildOf")
+ 	world_set(world, EcsComponent, EcsName, "jecs.Component")
++	world_set(world, EcsIsA, EcsName, "jecs.IsA")
++	world_set(world, EcsDontFragment, EcsName, "jecs.DontFragment")
+ 
+ 	world_set(world, EcsOnDelete, EcsName, "jecs.OnDelete")
+ 	world_set(world, EcsOnDeleteTarget, EcsName, "jecs.OnDeleteTarget")
+@@ -3920,6 +7986,28 @@ local function world_new(DEBUG: boolean?)
+ 		ENTITY_INDEX_NEW_ID(world)
+ 	end
+ 
++	if DEBUG then
++		-- Late trait changes are undefined (traits are snapshotted at first
++		-- use; see id_record_create) and silent in release. Debug worlds
++		-- install OnAdd hooks on the trait ids themselves: hooks are
++		-- snapshotted from the relation into every record created after this
++		-- point, so the guard fires exactly when a trait is added and every
++		-- other operation pays nothing. Must precede the ecs_metadata loop
++		-- or preregistered components would snapshot a nil hook. Add-only on
++		-- purpose: entity deletion strips (IsA, _) pairs through the same
++		-- OnRemove hook, so a remove guard cannot tell a late trait removal
++		-- from legal delete-cleanup.
++		local function trait_guard(entity: i53, id: i53)
++			local component_index = world.component_index
++			if component_index[entity] ~= nil
++				or component_index[ECS_PAIR(entity, EcsWildcard)] ~= nil then
++				error(ECS_DEBUG_ERROR_TRAIT_IN_USE)
++			end
++		end
++		world_set(world, EcsDontFragment, EcsOnAdd, trait_guard)
++		world_set(world, EcsIsA, EcsOnAdd, trait_guard)
++	end
++
+ 	for i, bundle in ecs_metadata do
+ 		for ty, value in bundle do
+ 			if value == NULL then
+@@ -3985,9 +8073,8 @@ local function entity_index_ensure(entity_index: entityindex, e: i53)
+ 					-- NOTE(marcus): We have to do this check to see if
+ 					-- they exist first because world:range() may have
+ 					-- pre-populated some slots already.
++					eindex_sparse_array[i] = { dense = 0 } :: record
+ 				end
+-
+-				eindex_sparse_array[i] = { dense = 0 } :: record
+ 			end
+ 			entity_index.max_id = index
+ 		end
+@@ -4035,11 +8122,17 @@ local function new_w_id(world: world, id: i53)
+ 	return e
+ end
+ 
++local function sort_by_type_count_desc(a: Archetype, b: Archetype)
++	return #a.types > #b.types
++end
++
+ return {
+ 	new = new,
+ 	new_w_id = new_w_id,
+ 	new_low_id = new_low_id,
+ 
++	ECS_ASSERT_VALID_VERSION = ECS_ASSERT_VALID_VERSION :: (World) -> (),
++
+ 	--- Create the world
+ 	world = world_new :: (boolean?) -> World,
+ 	World = {
+@@ -4079,6 +8172,16 @@ return {
+ 	Name = (EcsName :: any) :: Component<string>,
+ 	--- Used to mark whether a relationship is exclusive or not (see more 041_entity_relationships.luau)
+ 	Exclusive = (EcsExclusive :: any) :: Entity<nil>,
++	--- Relationship that establishes component inheritance. A component with an
++	--- (IsA, Base) pair matches has/get/queries/each for Base. Resolved at
++	--- archetype creation (storage-level), so it must be set up before the
++	--- component is used.
++	IsA = (EcsIsA :: any) :: Entity<nil>,
++	--- Trait that stores a component in sparse storage instead of archetypes.
++	--- Adding/removing it never moves the entity between archetypes. Works for
++	--- components and relationships (including Exclusive). Must be added
++	--- before the component is used.
++	DontFragment = (EcsDontFragment :: any) :: Entity<nil>,
+ 	ArchetypeCreate = (EcsOnArchetypeCreate :: any) :: Entity<nil>,
+ 	ArchetypeDelete = (EcsOnArchetypeDelete :: any) :: Entity<nil>,
+ 	Rest = (EcsRest :: any) :: Entity<nil>,
+@@ -4116,7 +8219,6 @@ return {
+ 	--- For bulk removing components from an entity
+ 	bulk_remove = ecs_bulk_remove :: (World, Entity, { Component }) -> (),
+ 
+-	entity_move = entity_move :: (EntityIndex, Entity, Record, Archetype) -> (),
+ 
+ 	entity_index_try_get = entity_index_try_get :: (EntityIndex, Entity) -> Record?,
+ 	entity_index_try_get_fast = entity_index_try_get_fast :: (EntityIndex, Entity) -> Record?,
+@@ -4133,6 +8235,8 @@ return {
+ 	query_without = query_without,
+ 	query_archetypes = query_archetypes,
+ 	query_match = query_match,
++	query_sort = query_sort,
++	sort_by_type_count_desc = sort_by_type_count_desc,
+ 
+ 	find_observers = find_observers :: (World, Component, Component) -> { Observer },
+ 
