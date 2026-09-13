@@ -4,8 +4,6 @@ import { Player, PlayerSession, Removing } from "shared/components";
 import { scheduler } from "shared/core/scheduler";
 import { UpdatePlaytime } from "./datastore/transformers/playtime";
 
-// Just for studio testing
-const PlaytimeUpdateInterval = timePassed(1);
 const PlaytimeSaveInterval = timePassed(60);
 
 function MakePlayerSession(world: World) {
@@ -40,7 +38,7 @@ function SavePlaytimeOnLeave(world: World) {
 
 scheduler().addSystems([
 	MakePlayerSession,
-	{ system: UpdateSessionPlaytime, runConditions: [PlaytimeUpdateInterval] },
+	UpdateSessionPlaytime,
 	{ system: SavePlaytimeOnTimer, runConditions: [PlaytimeSaveInterval] },
 	SavePlaytimeOnLeave,
 ]);
