@@ -27,7 +27,15 @@ export function start(world: World) {
 			get_entity_from_part: (part) => {
 				for (const [e, model] of world.query(components.Renderable)) {
 					if ((part === model || part.IsDescendantOf(model)) && model.IsA("PVInstance")) {
-						return $tuple(e, model as Part);
+						return $tuple(e, model);
+					}
+				}
+
+				for (const [e, group] of world.query(components.RenderableGroup)) {
+					for (const [, model] of pairs(group)) {
+						if ((part === model || part.IsDescendantOf(model)) && model.IsA("PVInstance")) {
+							return $tuple(e, model);
+						}
 					}
 				}
 			},
