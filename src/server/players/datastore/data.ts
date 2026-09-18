@@ -37,9 +37,14 @@ export const playerDataStore = createPlayerStore({
 
 	changedCallbacks: [
 		(key, newData, oldData) => {
-			const update = new Set<keyof PlayerSaveData>();
+			const existing = pendingDataUpdates.get(key);
+			const update = existing?.update ?? new Set<keyof PlayerSaveData>();
 
-			if (newData.profile !== oldData?.profile) update.add("profile");
+			for (const [key, newValue] of pairs(newData)) {
+				const oldValue = oldData?.[key];
+
+				if (newValue !== oldValue) update.add(key);
+			}
 
 			pendingDataUpdates.set(key, {
 				data: newData,
