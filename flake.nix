@@ -44,10 +44,41 @@
         devShells.default = pkgs.mkShell {
           packages = [
             rojo
-            pkgs.nodejs
+            pkgs.nodejs_22
             pkgs.git
             pkgs.luau-lsp
             pkgs.ripgrep
+          ];
+
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+            pkgs.glib
+            pkgs.libX11
+            pkgs.libxcb
+            pkgs.libXcomposite
+            pkgs.libXcursor
+            pkgs.libXdamage
+            pkgs.libXext
+            pkgs.libXfixes
+            pkgs.libXi
+            pkgs.libXrender
+            pkgs.libXtst
+            pkgs.libXScrnSaver
+            pkgs.libXrandr
+            pkgs.nss
+            pkgs.atk
+            pkgs.at-spi2-atk
+            pkgs.at-spi2-core
+            pkgs.dbus
+            pkgs.gdk-pixbuf
+            pkgs.gtk3
+            pkgs.pango
+            pkgs.cairo
+            pkgs.expat
+            pkgs.libdrm
+            pkgs.mesa
+            pkgs.alsa-lib
+            pkgs.cups
+            pkgs.nspr
           ];
         };
       });

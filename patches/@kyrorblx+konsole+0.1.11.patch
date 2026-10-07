@@ -1,0 +1,13 @@
+diff --git a/node_modules/@kyrorblx/konsole/typings/index.d.ts b/node_modules/@kyrorblx/konsole/typings/index.d.ts
+index 2ed454d..052b2d6 100644
+--- a/node_modules/@kyrorblx/konsole/typings/index.d.ts
++++ b/node_modules/@kyrorblx/konsole/typings/index.d.ts
+@@ -104,7 +104,7 @@ declare namespace Konsole {
+ 	}
+ 
+ 	export interface Context {
+-		entity?: Player;
++		entity: Player;
+ 		kommand: Command;
+ 		text: string;
+ 		dispatch: unknown;

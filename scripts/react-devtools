@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+exec "$(dirname "$0")/../node_modules/electron/dist/electron" \
+  --in-process-gpu \
+  "$(dirname "$0")/../node_modules/react-devtools/app" \
+  "$@"
