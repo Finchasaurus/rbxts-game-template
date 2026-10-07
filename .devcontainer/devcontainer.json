@@ -1,0 +1,21 @@
+{
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+	"features": {
+		"ghcr.io/devcontainers/features/nix:1": {
+			"packages": "direnv",
+			"extraNixConfig": "experimental-features = nix-command flakes"
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"mkhl.direnv",
+				"Roblox-TS.vscode-roblox-ts",
+				"esbenp.prettier-vscode",
+				"yoavbls.pretty-ts-errors",
+				"dbaeumer.vscode-eslint",
+				"eliostruyf.vscode-typescript-exportallmodules"
+			]
+		}
+	}
+}
