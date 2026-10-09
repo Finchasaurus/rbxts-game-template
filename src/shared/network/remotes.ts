@@ -2,7 +2,9 @@ import { Networking } from "@flamework/networking";
 import type { Entity } from "@rbxts/jecs";
 
 interface ClientToServerEvents {
-	gameplay: object;
+	gameplay: {
+		interact(serverId: number): void;
+	};
 }
 interface ClientToServerFunctions {
 	replecs: {
