@@ -3,7 +3,7 @@ import { ref } from "@rbxts/jecs-utils";
 import { onEvent } from "@rbxts/planck";
 import { Phases } from "@rbxts/planck-runservice";
 import { Players } from "@rbxts/services";
-import { Replicator } from "server/network/replicator";
+import { ServerReplicator } from "server/network/replicator";
 import { Player, Removing } from "shared/components";
 import { scheduler } from "shared/core/scheduler";
 
@@ -14,9 +14,9 @@ function PlayerAddedSystem(world: World) {
 
 		world.set(playerId, Player, player);
 
-		Replicator.set_networked(playerId);
-		Replicator.set_reliable(playerId, Player);
-		Replicator.set_custom(playerId, Player);
+		ServerReplicator.set_networked(playerId);
+		ServerReplicator.set_reliable(playerId, Player);
+		ServerReplicator.set_custom(playerId, Player);
 	}
 }
 

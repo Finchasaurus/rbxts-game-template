@@ -1,9 +1,9 @@
 import { replicator } from "shared/network/replicator";
 import { Functions } from "./network";
 
-export const Replicator = replicator().client;
-Replicator.init();
+export const ClientReplicator = replicator().client;
+ClientReplicator.init();
 
 Functions.replecs.receiveFull.invoke().then(([b, variants]) => {
-	Replicator.apply_full(b as buffer, variants as defined[][]);
+	ClientReplicator.apply_full(b as buffer, variants as defined[][]);
 });
