@@ -1,6 +1,6 @@
 import React from "@rbxts/react";
 import { Layer } from "./components/base/layer";
-import { Loading } from "./components/layouts/loading/loading";
+import { LoadingScreen } from "./components/layouts/loading-screen/loading";
 
 export function App() {
 	return (
@@ -9,7 +9,7 @@ export function App() {
 			<Layer key="Menu"></Layer>
 			<Layer key="World"></Layer>
 
-			<Loading />
+			<LoadingScreen />
 		</>
 	);
 }

@@ -1,15 +1,15 @@
 import React from "@rbxts/react";
 import { Layer } from "app/components/base/layer";
 import { useLoading } from "app/contexts/loading-context";
-import { LoadingScreen } from "./loading-screen";
+import { LoadingScreenView } from "./view";
 
-export function Loading() {
+export function LoadingScreen() {
 	const isLoading = useLoading();
 
 	return (
 		isLoading && (
 			<Layer key="Loading Screen">
-				<LoadingScreen />
+				<LoadingScreenView />
 			</Layer>
 		)
 	);
