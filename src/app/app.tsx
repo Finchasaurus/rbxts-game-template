@@ -1,6 +1,6 @@
 import React from "@rbxts/react";
 import { Layer } from "./components/base/layer";
-import { Loading } from "./components/widgets/loading/loading";
+import { Loading } from "./components/layouts/loading/loading";
 
 export function App() {
 	return (

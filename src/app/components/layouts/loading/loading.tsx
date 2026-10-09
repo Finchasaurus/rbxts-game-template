@@ -1,6 +1,6 @@
 import React from "@rbxts/react";
 import { Layer } from "app/components/base/layer";
-import { useLoading } from "app/hooks/use-loading";
+import { useLoading } from "app/contexts/loading-context";
 import { LoadingScreen } from "./loading-screen";
 
 export function Loading() {
