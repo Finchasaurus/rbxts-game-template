@@ -13,7 +13,5 @@
 	"eslint.format.enable": true,
 	"eslint.useFlatConfig": false,
 	"exportall.config.folderListener": ["/src/shared/components"],
-	"exportall.config.relExclusion": [
-		"/src/shared/components/shared.ts"
-	],
+	"exportall.config.relExclusion": ["/src/shared/components/shared.ts", "/src/shared/components/util.ts"]
 }

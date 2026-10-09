@@ -1,7 +1,8 @@
 import { component, Delete, meta, OnDeleteTarget, pair, tag } from "@rbxts/jecs";
 import type { ProfileData } from "server/players/datastore/data";
+import { replicatedComponent } from "./util";
 
-export const Player = component<Player>();
+export const Player = replicatedComponent<Player>();
 export const LocalPlayer = tag();
 
 export const OwnedBy = tag();
