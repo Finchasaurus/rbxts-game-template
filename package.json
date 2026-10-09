@@ -15,7 +15,7 @@
 	"type": "commonjs",
 	"devDependencies": {
 		"@rbxts/compiler-types": "^3.0.0-types.0",
-		"@rbxts/types": "^1.0.915",
+		"@rbxts/types": "^1.0.957",
 		"@typescript-eslint/eslint-plugin": "^8.51.0",
 		"@typescript-eslint/parser": "^8.51.0",
 		"eslint": "^9.39.2",
@@ -51,7 +51,8 @@
 		"@rbxts/replecs": "^0.3.1",
 		"@rbxts/services": "^1.6.0",
 		"@rbxts/t": "^3.2.1",
-		"@rbxts/ui-labs": "^2.4.2"
+		"@rbxts/ui-labs": "^2.4.2",
+		"@rbxts/validate-tree": "^2.0.2"
 	},
 	"overrides": {
 		"@rbxts/jecs": "github:Ukendio/jecs",

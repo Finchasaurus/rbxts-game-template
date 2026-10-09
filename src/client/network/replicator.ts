@@ -1,7 +1,8 @@
+import { extendClient } from "shared/network/replecs-roblox";
 import { replicator } from "shared/network/replicator";
 import { Functions } from "./network";
 
-export const ClientReplicator = replicator().client;
+export const ClientReplicator = extendClient(replicator().client);
 ClientReplicator.init();
 
 Functions.replecs.receiveFull.invoke().then(([b, variants]) => {

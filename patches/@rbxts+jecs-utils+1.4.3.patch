@@ -1,0 +1,15 @@
+diff --git a/node_modules/@rbxts/jecs-utils/src/index.d.ts b/node_modules/@rbxts/jecs-utils/src/index.d.ts
+index aca2bd0..18a0cda 100644
+--- a/node_modules/@rbxts/jecs-utils/src/index.d.ts
++++ b/node_modules/@rbxts/jecs-utils/src/index.d.ts
+@@ -91,8 +91,8 @@ export interface Observer {
+ 
+ export interface Monitor {
+ 	disconnect: () => void;
+-	added: (callback: (entity: Entity) => void) => void;
+-	removed: (callback: (entity: Entity) => void) => void;
++	added: (callback: (entity: Entity, deleting: boolean) => void) => void;
++	removed: (callback: (entity: Entity, deleting: boolean) => void) => void;
+ }
+ 
+ export function observer(query: Query<Id[]>, callback: (entity: Entity) => void): Observer;

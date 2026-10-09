@@ -1,7 +1,8 @@
+import { extendServer } from "shared/network/replecs-roblox";
 import { replicator } from "shared/network/replicator";
 import { Functions } from "./network";
 
-export const ServerReplicator = replicator().server;
+export const ServerReplicator = extendServer(replicator().server);
 ServerReplicator.init();
 
 Functions.replecs.receiveFull.setCallback((player) => {
