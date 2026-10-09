@@ -13,3 +13,6 @@ Flamework.addPaths("src/server");
 Flamework.addPaths("src/shared");
 
 start(world);
+
+import { initProviders } from "./providers";
+initProviders(world);

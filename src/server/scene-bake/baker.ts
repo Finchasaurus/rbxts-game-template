@@ -4,7 +4,7 @@ import { onEvent, Phase } from "@rbxts/planck";
 import { CollectionService } from "@rbxts/services";
 import { validateTree } from "@rbxts/validate-tree";
 import { ServerReplicator } from "server/network/replicator";
-import { ServerSettings } from "server/server-settings";
+import { ServerSettingsProvider } from "server/server-settings";
 import { Interactable, InteractableTree, Renderable, ServerLoadState } from "shared/components";
 import { scheduler } from "shared/core/scheduler";
 import type { SceneType } from "./types";
@@ -136,7 +136,7 @@ function BakeEntities(world: World) {
 
 		if (!startupComplete && startupQueue.isEmpty()) {
 			startupComplete = true;
-			ServerSettings.setLoadState(ServerLoadState.Ready);
+			ServerSettingsProvider.setLoadState(ServerLoadState.Ready);
 		}
 
 		const added = additionQueue.pop();

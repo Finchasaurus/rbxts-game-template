@@ -3,7 +3,7 @@ import type { ServerLoadState } from "shared/components";
 import { GameServerSettings } from "shared/components";
 import { ServerReplicator } from "./network/replicator";
 
-export namespace ServerSettings {
+export namespace ServerSettingsProvider {
 	let world: World;
 	export function init(w: World) {
 		world = w;
