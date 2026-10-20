@@ -3,9 +3,8 @@ import { ref } from "@rbxts/jecs-utils";
 import { onEvent, Phase } from "@rbxts/planck";
 import { CollectionService } from "@rbxts/services";
 import { validateTree } from "@rbxts/validate-tree";
-import { spawnWorldItems } from "server/items/spawn";
 import { ServerReplicator } from "server/network/replicator";
-import { ServerSettings } from "server/server-settings";
+import { ServerSettingsProvider } from "server/server-settings";
 import { Interactable, InteractableTree, ServerLoadState } from "shared/components";
 import { Renderable } from "shared/components/util";
 import { scheduler } from "shared/core/scheduler";
@@ -156,7 +155,7 @@ function BakeEntities(world: World) {
 		// Everything from startup is baked: tell clients the server is ready.
 		if (!startupComplete && startupQueue.isEmpty()) {
 			startupComplete = true;
-			ServerSettings.setLoadState(ServerLoadState.Ready);
+			ServerSettingsProvider.setLoadState(ServerLoadState.Ready);
 		}
 
 		const added = additionQueue.pop();

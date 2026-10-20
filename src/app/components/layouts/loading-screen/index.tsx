@@ -7,7 +7,7 @@ import { LoadingScreenView } from "./view";
 /**
  * The loading screen layer to only render while game is loading
  */
-export function Loading() {
+export function LoadingScreen() {
 	const isLoading = useLoading();
 
 	return (

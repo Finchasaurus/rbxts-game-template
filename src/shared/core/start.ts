@@ -5,7 +5,7 @@ import { IS_PAIR, Name } from "@rbxts/jecs";
 import { shared } from "@rbxts/replecs";
 import { RunService } from "@rbxts/services";
 import * as components from "shared/components";
-import { Replicates } from "shared/components/util";
+import { Renderable, Replicates } from "shared/components/util";
 
 export function start(world: World) {
 	for (const [name, component] of pairs(components)) {
@@ -25,7 +25,7 @@ export function start(world: World) {
 		configuration: {
 			world: world,
 			get_entity_from_part: (part) => {
-				for (const [e, model] of world.query(components.Renderable)) {
+				for (const [e, model] of world.query(Renderable)) {
 					if ((part === model || part.IsDescendantOf(model)) && model.IsA("PVInstance")) {
 						return $tuple(e, model);
 					}

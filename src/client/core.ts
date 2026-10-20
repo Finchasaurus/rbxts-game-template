@@ -1,5 +1,4 @@
 import { StarterGui } from "@rbxts/services";
-import { Place } from "shared/places";
 
 /**
  * Roblox core configuration (StarterGui SetCore / SetCoreGuiEnabled)
@@ -28,5 +27,5 @@ export function SetCoreGuiWhenReady(coreGuiType: CastsToEnum<Enum.CoreGuiType>, 
 	SetWhenReady(() => StarterGui.SetCoreGuiEnabled(coreGuiType, enabled));
 }
 
-SetCoreWhenReady("ResetButtonCallback", Place.IsGame() ? ResetEvent : false);
+SetCoreWhenReady("ResetButtonCallback", ResetEvent);
 SetCoreGuiWhenReady("Backpack", false);
