@@ -3,29 +3,29 @@ name: "Checks rbxts project"
 on: [push, workflow_dispatch]
 
 jobs:
-    test:
-        name: "Lint and compile"
-        runs-on: ubuntu-latest
-        steps:
-            - name: "Checkout repository"
-              uses: actions/checkout@master
-              
-            - name: "Install Nix"
-              uses: DeterminateSystems/nix-installer-action@main
-            
-            - name: "Cache Nix build outputs"
-              uses: DeterminateSystems/magic-nix-cache-action@main
-            
-            - name: "Enter Nix development environment"
-              uses: nicknovitski/nix-develop@v1
-            
-            - name: "Install NPM dependencies"
-              run: npm ci --prefer-offline
-           
-             - name: "Compile Roblox-TS"
-              run: npx rbxtsc
-            
-            - name: "Run ESLint"
-              run: npx eslint .
-              env:
-                ESLINT_USE_FLAT_CONFIG: "false"
+  test:
+    name: "Lint and compile"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Install Nix"
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: "Cache Nix build outputs"
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: "Enter Nix development environment"
+        uses: nicknovitski/nix-develop@v1
+ 
+      - name: "Install NPM dependencies"
+        run: npm ci --prefer-offline
+
+      - name: "Compile Roblox-TS"
+        run: npx rbxtsc
+
+      - name: "Run ESLint"
+        run: npx eslint .
+        env:
+          ESLINT_USE_FLAT_CONFIG: "false"
