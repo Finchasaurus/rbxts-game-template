@@ -1,0 +1,21 @@
+name: "Checks rbxts project"
+
+on: [push, workflow_dispatch]
+
+jobs:
+    test:
+        name: "Lint and compile"
+        runs-on: ubuntu-latest
+        steps:
+            - name: "Checkout repository"
+              uses: actions/checkout@master
+            - name: "Install Nix"
+              uses: cachix/install-nix-action@v31
+            - name: "Enter Nix development environment"
+              uses: nicknovitski/nix-develop@v1
+            - name: "Install NPM dependencies"
+              run: npm ci
+            - name: "Run ESLint"
+              run: npx eslint .
+            - name: "Compile Roblox-TS"
+              run: npx rbxtsc
