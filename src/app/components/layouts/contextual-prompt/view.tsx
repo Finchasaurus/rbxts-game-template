@@ -6,6 +6,9 @@ interface ContextualPromptViewProps {
 	inputText: string;
 }
 
+/**
+ * Presentation half of a prompt to be shown in stories and such.
+ */
 export function ContextualPromptView({ actionText, objectText, inputText }: ContextualPromptViewProps) {
 	return (
 		<frame

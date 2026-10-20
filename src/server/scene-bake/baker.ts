@@ -3,12 +3,23 @@ import { ref } from "@rbxts/jecs-utils";
 import { onEvent, Phase } from "@rbxts/planck";
 import { CollectionService } from "@rbxts/services";
 import { validateTree } from "@rbxts/validate-tree";
+import { spawnWorldItems } from "server/items/spawn";
 import { ServerReplicator } from "server/network/replicator";
-import { ServerSettingsProvider } from "server/server-settings";
-import { Interactable, InteractableTree, Renderable, ServerLoadState } from "shared/components";
+import { ServerSettings } from "server/server-settings";
+import { Interactable, InteractableTree, ServerLoadState } from "shared/components";
+import { Renderable } from "shared/components/util";
 import { scheduler } from "shared/core/scheduler";
 import type { SceneType } from "./types";
 import { SceneTypes } from "./types";
+
+/**
+ * Turns instances tagged `Entity` into ECS entities.
+ * The instance's `Type` attribute picks the scene type from types/ that decides what the instance should look like
+ * and any extra setup it needs.
+ * Instances that exist at startup are baked first, then the ones added later.
+ * Once the startup ones are done the server is marked Ready,which lets clients drop their loading screen.
+ * Destorying an instance (or removing tag) deletes the entity.
+ */
 
 const [hasAddedTagInstances, addedTagInstances] = onEvent(CollectionService.GetInstanceAddedSignal(Tag.Entity));
 const [hasRemovedTagInstances, removedTagInstances] = onEvent(CollectionService.GetInstanceRemovedSignal(Tag.Entity));
@@ -28,13 +39,12 @@ function FindParentEntity(instance: Instance) {
 	return undefined;
 }
 
-// Todo: Make it so that entities are linked parent-child so that things like a dorm's card reader can only be read by player who lives in dorm
 function BakeEntity(world: World, instance: Instance) {
 	if (!instance.HasTag(Tag.Entity)) {
 		return;
 	}
 
-	const t = instance.GetAttribute<SceneType>("Type");
+	const t = instance.GetAttribute<SceneType>(Attributes.SceneType);
 	if (t === undefined) {
 		warn(`Tried to Scene Bake instance: ${instance.GetFullName()} but couldn't find Type attribute.`);
 		return;
@@ -53,6 +63,12 @@ function BakeEntity(world: World, instance: Instance) {
 		return;
 	}
 
+	const rejection = sceneType.reject?.(instance as never);
+	if (rejection !== undefined) {
+		warn(`Refused to Scene Bake instance: ${instance.GetFullName()} of type: ${t}: ${rejection}`);
+		return;
+	}
+
 	const id = ref(instance);
 
 	const insCmp = sceneType.renderable ?? Renderable;
@@ -61,6 +77,7 @@ function BakeEntity(world: World, instance: Instance) {
 
 	ServerReplicator.set_networked(id);
 
+	// Anything with a Prompt attachment can be interacted with. Clients make the prompt.
 	if (validateTree(instance, InteractableTree)) {
 		world.add(id, Interactable);
 		ServerReplicator.set_reliable(id, Interactable);
@@ -80,6 +97,7 @@ function BakeEntity(world: World, instance: Instance) {
 	return id;
 }
 
+// Instances waiting to be baked. Startup ones go first, `queued` stops one from being queued twice.
 const startupQueue = new Array<Instance>();
 const additionQueue = new Array<Instance>();
 
@@ -117,6 +135,7 @@ function CollectAddedEntities() {
 	}
 }
 
+/** Bakes queued instances, a little each frame so a large scene doesn't stall the server. */
 function BakeEntities(world: World) {
 	// ~2ms budget for baking
 	const deadline = os.clock() + 0.002;
@@ -134,9 +153,10 @@ function BakeEntities(world: World) {
 			continue;
 		}
 
+		// Everything from startup is baked: tell clients the server is ready.
 		if (!startupComplete && startupQueue.isEmpty()) {
 			startupComplete = true;
-			ServerSettingsProvider.setLoadState(ServerLoadState.Ready);
+			ServerSettings.setLoadState(ServerLoadState.Ready);
 		}
 
 		const added = additionQueue.pop();

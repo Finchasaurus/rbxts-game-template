@@ -12,6 +12,11 @@
 	"eslint.run": "onType",
 	"eslint.format.enable": true,
 	"eslint.useFlatConfig": false,
-	"exportall.config.folderListener": ["/src/shared/components"],
-	"exportall.config.relExclusion": ["/src/shared/components/shared.ts", "/src/shared/components/util.ts"]
+	"exportall.config.folderListener": [
+		"/src/shared/components",
+		"/src/server/players/datastore/syncers"
+	],
+	"exportall.config.relExclusion": [
+		"/src/shared/components/util.ts"
+	]
 }

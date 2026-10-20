@@ -5,6 +5,11 @@ import { scheduler } from "shared/core/scheduler";
 import { playerDataStore } from "./data";
 import { UpdatePlaytime } from "./transformers/playtime";
 
+/**
+ * Saves playtime when server shuts down then closes the store.
+ *
+ * Registers shutdown manager to run once at Startup.
+ */
 function DataBindToClose(world: World) {
 	game.BindToClose(() => {
 		for (const [, player, session] of world.query(Player, PlayerSession)) {

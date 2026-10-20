@@ -8,11 +8,8 @@ import type { Client, Server } from "@rbxts/replecs";
 import { serdes, shared } from "@rbxts/replecs";
 import { CollectionService } from "@rbxts/services";
 
-const TAG = "replecs-roblox.Instance";
-const ATTR = "replecs-roblox.InstanceId";
-
 export const InstanceId = component<number>();
-meta(InstanceId, Name, ATTR);
+meta(InstanceId, Name, Attributes.ReplecsRoblox);
 meta(InstanceId, shared);
 meta(InstanceId, serdes, {
 	bytespan: 4,
@@ -48,7 +45,7 @@ function setupNetworkedInstanceReconciler(world: World) {
 	}
 
 	function instanceAdded(instance: Instance) {
-		const id = instance.GetAttribute<number>(ATTR);
+		const id = instance.GetAttribute<number>(Attributes.ReplecsRoblox);
 		if (id === undefined) {
 			return;
 		}
@@ -138,11 +135,11 @@ function setupNetworkedInstanceReconciler(world: World) {
 		world.remove(e, ct);
 	});
 
-	for (const instance of CollectionService.GetTagged(TAG)) {
+	for (const instance of CollectionService.GetTagged(Tag.ReplecsRoblox)) {
 		instanceAdded(instance);
 	}
-	CollectionService.GetInstanceAddedSignal(TAG).Connect(instanceAdded);
-	CollectionService.GetInstanceRemovedSignal(TAG).Connect(instanceRemoved);
+	CollectionService.GetInstanceAddedSignal(Tag.ReplecsRoblox).Connect(instanceAdded);
+	CollectionService.GetInstanceRemovedSignal(Tag.ReplecsRoblox).Connect(instanceRemoved);
 }
 
 export type RbxComponents = {
@@ -168,14 +165,14 @@ export function extendServer(replicator: Server): ExtendedServer {
 	let nextId = 0;
 
 	function replicateInstance(entity: Entity, component: Entity, instance: Instance) {
-		let id = instance.GetAttribute<number>(ATTR);
+		let id = instance.GetAttribute<number>(Attributes.ReplecsRoblox);
 		const pairId = pair(InstanceId, component);
 
 		if (id === undefined) {
 			nextId += 1;
 			id = nextId;
-			instance.SetAttribute(ATTR, id);
-			instance.AddTag(TAG);
+			instance.SetAttribute(Attributes.ReplecsRoblox, id);
+			instance.AddTag(Tag.ReplecsRoblox);
 		}
 
 		world.set(entity, pairId, id);

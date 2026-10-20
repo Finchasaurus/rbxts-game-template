@@ -1,0 +1,99 @@
+diff --git a/node_modules/@rbxts-js/react-devtools-shared/src/backend/views/Highlighter/Overlay/Overlay.lua b/node_modules/@rbxts-js/react-devtools-shared/src/backend/views/Highlighter/Overlay/Overlay.lua
+index c0f1610..e09f207 100644
+--- a/node_modules/@rbxts-js/react-devtools-shared/src/backend/views/Highlighter/Overlay/Overlay.lua
++++ b/node_modules/@rbxts-js/react-devtools-shared/src/backend/views/Highlighter/Overlay/Overlay.lua
+@@ -3,8 +3,8 @@
+ local PackageRoot = script.Parent.Parent.Parent.Parent.Parent
+ 
+ local Packages = PackageRoot.Parent
+-local ReactGlobals = require(Packages.ReactGlobals)
+ local LuauPolyfill = require(Packages.LuauPolyfill)
++local ReactGlobals = require(Packages.ReactGlobals)
+ local Array = LuauPolyfill.Array
+ 
+ local BackendTypes = require(PackageRoot.backend.types)
+@@ -14,9 +14,9 @@ local OverlayRect = require(script.Parent.OverlayRect)
+ local OverlayTip = require(script.Parent.OverlayTip)
+ type OverlayRect = OverlayRect.OverlayRect
+ 
+-local function getNestedBoundingClientRect(node: GuiBase2d): Rect
++local function getNestedBoundingClientRect(node: GuiBase2d, origin: Vector2): Rect
+ 	local bounds = node.AbsoluteSize
+-	local position = node.AbsolutePosition
++	local position = node.AbsolutePosition - origin
+ 	return Rect.new(position, position + bounds)
+ end
+ 
+@@ -104,6 +104,8 @@ function Overlay.inspect(self: Overlay, nodes: { GuiBase2d }, name: string?)
+ 		table.insert(self.rects, OverlayRect.new(self.rectContainer))
+ 	end
+ 
++	local origin = self.containerFrame.AbsolutePosition
++
+ 	local outerBox = {
+ 		top = math.huge,
+ 		right = -math.huge,
+@@ -111,7 +113,7 @@ function Overlay.inspect(self: Overlay, nodes: { GuiBase2d }, name: string?)
+ 		left = math.huge,
+ 	}
+ 	for index, element in elements do
+-		local box = getNestedBoundingClientRect(element)
++		local box = getNestedBoundingClientRect(element, origin)
+ 
+ 		outerBox.top = math.min(outerBox.top, box.Min.Y)
+ 		outerBox.right = math.max(outerBox.right, box.Max.X)
+@@ -119,7 +121,7 @@ function Overlay.inspect(self: Overlay, nodes: { GuiBase2d }, name: string?)
+ 		outerBox.left = math.min(outerBox.left, box.Min.X)
+ 
+ 		local rect = self.rects[index]
+-		rect:update(element)
++		rect:update(element, origin)
+ 	end
+ 
+ 	if name == nil or name == "" then
+@@ -149,13 +151,7 @@ function Overlay.inspect(self: Overlay, nodes: { GuiBase2d }, name: string?)
+ 		outerBox.bottom - outerBox.top
+ 	)
+ 
+-	local tipBoundsWindow: GuiBase2d = if self.layerCollector
+-		then self.layerCollector
+-		elseif elements[1]:IsA("LayerCollector") then elements[1]
+-		else nil
+-	local tipBounds = if tipBoundsWindow
+-		then getNestedBoundingClientRect(tipBoundsWindow)
+-		else Rect.new(Vector2.new(0, 0), Vector2.new(math.huge, math.huge))
++	local containerSize = self.containerFrame.AbsoluteSize
+ 
+ 	self.tip:updatePosition({
+ 		top = outerBox.top,
+@@ -163,10 +159,10 @@ function Overlay.inspect(self: Overlay, nodes: { GuiBase2d }, name: string?)
+ 		height = outerBox.bottom - outerBox.top,
+ 		width = outerBox.right - outerBox.left,
+ 	}, {
+-		top = tipBounds.Min.Y,
+-		left = tipBounds.Min.X,
+-		height = tipBounds.Height,
+-		width = tipBounds.Width,
++		top = 0,
++		left = 0,
++		height = containerSize.Y,
++		width = containerSize.X
+ 	})
+ end
+ 
+diff --git a/node_modules/@rbxts-js/react-devtools-shared/src/backend/views/Highlighter/Overlay/OverlayRect.lua b/node_modules/@rbxts-js/react-devtools-shared/src/backend/views/Highlighter/Overlay/OverlayRect.lua
+index 09c2f1b..10df4e1 100644
+--- a/node_modules/@rbxts-js/react-devtools-shared/src/backend/views/Highlighter/Overlay/OverlayRect.lua
++++ b/node_modules/@rbxts-js/react-devtools-shared/src/backend/views/Highlighter/Overlay/OverlayRect.lua
+@@ -38,9 +38,9 @@ function OverlayRect.remove(self: OverlayRect)
+ 	self.node:Destroy()
+ end
+ 
+-function OverlayRect.update(self: OverlayRect, element: GuiBase2d)
++function OverlayRect.update(self: OverlayRect, element: GuiBase2d, origin: Vector2?)
+ 	local size = element.AbsoluteSize
+-	local position = element.AbsolutePosition
++	local position = element.AbsolutePosition - (origin or Vector2.zero)
+ 
+ 	local padding = element:FindFirstChildOfClass("UIPadding")
+ 	if padding then

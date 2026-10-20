@@ -3,6 +3,10 @@ import React, { useState } from "@rbxts/react";
 import { ProximityPromptService } from "@rbxts/services";
 import { ContextualPromptView } from "./view";
 
+/**
+ * Shows the proximity prompt that Roblox says is currently active (only one at a time).
+ * Prompts have a custom style so Roblox won't draw them so this displays such.
+ */
 export function ContextualPrompt() {
 	const [prompt, setPrompt] = useState<ProximityPrompt>();
 

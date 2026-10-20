@@ -1,8 +1,33 @@
 diff --git a/node_modules/@kyrorblx/konsole/typings/index.d.ts b/node_modules/@kyrorblx/konsole/typings/index.d.ts
-index 2ed454d..052b2d6 100644
+index d0bca80..5a2e5cd 100644
 --- a/node_modules/@kyrorblx/konsole/typings/index.d.ts
 +++ b/node_modules/@kyrorblx/konsole/typings/index.d.ts
-@@ -104,7 +104,7 @@ declare namespace Konsole {
+@@ -10,21 +10,21 @@ declare namespace Konsole {
+ 				type?: "string";
+ 				default?: string;
+ 				required?: boolean;
+-				suggestions?: string[] | string;
++				suggestions?: readonly string[] | string;
+ 		}
+ 		| {
+ 				name?: string;
+ 				type: "number";
+ 				default?: number;
+ 				required?: boolean;
+-				suggestions?: `${number}`[] | `${number}`;
++				suggestions?: readonly `${number}`[] | `${number}`;
+ 		}
+ 		| {
+ 				name?: string;
+ 				type: "boolean";
+ 				default?: boolean;
+ 				required?: boolean;
+-				suggestions?: BooleanArgument[] | BooleanArgument;
++				suggestions?: readonly BooleanArgument[] | BooleanArgument;
+ 		}
+ 		| {
+ 				name?: string;
+@@ -99,7 +99,7 @@ declare namespace Konsole {
  	}
  
  	export interface Context {

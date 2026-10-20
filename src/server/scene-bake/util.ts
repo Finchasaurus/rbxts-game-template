@@ -3,19 +3,33 @@ import { ref } from "@rbxts/jecs-utils";
 import type { EvaluateInstanceTree, InstanceTree } from "@rbxts/validate-tree";
 import { Triggers } from "shared/components";
 
+/** Runs once for each baked instance of a scene type. `instance` is typed from the scene type's tree. */
 export type SceneBakeCallback<T extends InstanceTree> = (
 	world: World,
 	id: Entity,
 	instance: EvaluateInstanceTree<T>,
 ) => void;
 
+/** How instances of a scene type are baked. */
 export interface SceneTypeDefinition<T extends InstanceTree> {
+	/** What the instance has to look like, instances that don't match aren't baked. */
 	tree: T;
+	/** Component the instance is stored in, defaults to Renderable. */
 	renderable?: Entity<EvaluateInstanceTree<T>>;
+	/** Extra setup for entities of this type. */
 	callback: SceneBakeCallback<T>;
+	/** Return why an instance must not be baked (skipped with warning) */
+	reject?: (instance: EvaluateInstanceTree<T>) => string | undefined;
 }
 
-export function getLinkedEntityFromInstance(instance: Instance, attribute = "Links"): Entity | undefined {
+/**
+ * The entity of the instance an instance's `Links` attribute points to (an InstanceHandle).
+ * Used to connect a button to the thing it triggers.
+ */
+export function getLinkedEntityFromInstance(
+	instance: Instance,
+	attribute = Attributes.LinkedEntity,
+): Entity | undefined {
 	const handle = instance.GetAttribute<InstanceHandle>(attribute);
 	const target = handle?.Get();
 

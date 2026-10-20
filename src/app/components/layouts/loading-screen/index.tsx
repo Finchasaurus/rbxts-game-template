@@ -1,16 +1,20 @@
 import React from "@rbxts/react";
 import { Layer } from "app/components/base/layer";
+import { Show } from "app/components/base/show";
 import { useLoading } from "app/contexts/loading-context";
 import { LoadingScreenView } from "./view";
 
-export function LoadingScreen() {
+/**
+ * The loading screen layer to only render while game is loading
+ */
+export function Loading() {
 	const isLoading = useLoading();
 
 	return (
-		isLoading && (
+		<Show show={isLoading}>
 			<Layer key="Loading Screen">
 				<LoadingScreenView />
 			</Layer>
-		)
+		</Show>
 	);
 }

@@ -2,6 +2,12 @@ import { pair, Wildcard, type World } from "@rbxts/jecs";
 import { Clock, Timer, TimerExpired } from "./components";
 import { scheduler } from "./core/scheduler";
 
+/**
+ * - `pair(Timer, tag) -> seconds`: counts down. When it passes zero the pair is removed and TimerExpired is added
+ *   to the entity for one frame, so systems can query for TimerExpired to react to it.
+ * - `pair(Clock, tag) -> seconds`: counts up.
+ */
+
 function TimerSystem(world: World) {
 	// Frame passed since expiration so remove
 	for (const [e] of world.query(TimerExpired)) {

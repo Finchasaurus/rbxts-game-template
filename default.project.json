@@ -1,6 +1,9 @@
 {
 	"name": "rbxts-game-template",
-	"globIgnorePaths": ["**/package.json", "**/tsconfig.json"],
+	"globIgnorePaths": [
+		"**/package.json",
+		"**/tsconfig.json"
+	],
 	"emitLegacyScripts": false,
 	"tree": {
 		"$className": "DataModel",
@@ -43,6 +46,18 @@
 			"$className": "ServerScriptService",
 			"server": {
 				"$path": "out/server"
+			}
+		},
+		"StarterPlayer": {
+			"$className": "StarterPlayer",
+			"$properties": {
+				"EnableMouseLockOption": false
+			}
+		},
+		"StarterGui": {
+			"$className": "StarterGui",
+			"$properties": {
+				"ScreenOrientation": "LandscapeSensor"
 			}
 		}
 	}
