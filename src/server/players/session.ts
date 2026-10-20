@@ -4,7 +4,7 @@ import { onEvent } from "@rbxts/planck";
 import { Phases } from "@rbxts/planck-runservice";
 import { Players } from "@rbxts/services";
 import { ServerReplicator } from "server/network/replicator";
-import { Player, Removing } from "shared/components";
+import { Player, PlayerParty, Removing } from "shared/components";
 import { scheduler } from "shared/core/scheduler";
 
 /**

@@ -1,5 +1,5 @@
 import { component, Delete, meta, OnDeleteTarget, pair, tag } from "@rbxts/jecs";
-import type { EmployeeRank, ProfileData } from "server/players/datastore/data";
+import type { ProfileData } from "server/players/datastore/data";
 import { replicatedComponent } from "./util";
 
 /** Components that describe a player entity and their saved data. */
@@ -27,7 +27,6 @@ export const PlayerProfile = component<ProfileData>();
 export const PlayerSession = component<number>();
 
 export const Removing = tag();
-
 
 // Roblox parties (6 max)
 export const PlayerParty = component<string>();
