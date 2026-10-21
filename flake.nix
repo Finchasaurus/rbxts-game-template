@@ -42,6 +42,8 @@
       in
       {
         devShells.default = pkgs.mkShell {
+          ESLINT_USE_FLAT_CONFIG = "false";
+
           packages = [
             rojo
             pkgs.nodejs_22

@@ -1,4 +1,4 @@
-import { component, IsA, meta, pair, tag } from "@rbxts/jecs";
+import { component, meta, tag } from "@rbxts/jecs";
 import { replicatedComponent } from "./util";
 
 export const Timer = component<number>();

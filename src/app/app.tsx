@@ -7,7 +7,8 @@ export function App() {
 	return (
 		<>
 			<Layer key="HUD">
-				<ContextualPrompt /></Layer>
+				<ContextualPrompt />
+			</Layer>
 			<Layer key="Menu"></Layer>
 			<Layer key="World"></Layer>
 
