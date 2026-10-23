@@ -6,82 +6,119 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-        };
+        pkgs = import nixpkgs { inherit system; };
+        lib = pkgs.lib;
 
-        rojo = pkgs.rustPlatform.buildRustPackage rec {
-          pname = "rojo";
-          version = "7.7.0";
-
-          src = pkgs.fetchFromGitHub {
-            owner = "rojo-rbx";
-            repo = "rojo";
-            tag = "v${version}";
-            hash = "sha256-2atNAiv51MNpxXdwvKSvtO1CGvQUOdUUOZszjAm3zi8=";
-            fetchSubmodules = true;
+        mkRustPackage =
+          {
+            pname,
+            version,
+            owner,
+            repo,
+            hash,
+            cargoHash,
+            doCheck ? true,
+            fetchSubmodules ? false,
+          }:
+          pkgs.rustPlatform.buildRustPackage {
+            inherit
+              pname
+              version
+              cargoHash
+              doCheck
+              ;
+            src = pkgs.fetchFromGitHub {
+              inherit
+                owner
+                repo
+                hash
+                fetchSubmodules
+                ;
+              tag = "v${version}";
+            };
           };
 
-          cargoHash = "sha256-1xTvW3Ra6erYpjxgfp2m8qVMz6u99WCDv2VE/Xh2mFc=";
-
-          nativeBuildInputs = [
-            pkgs.pkg-config
-          ];
-
-          buildInputs = [
-            pkgs.openssl
-          ];
-
-          OPENSSL_NO_VENDOR = true;
-
-          doCheck = !pkgs.stdenv.hostPlatform.isDarwin;
+        rojo = mkRustPackage {
+          pname = "rojo";
+          version = "7.7.1";
+          owner = "rojo-rbx";
+          repo = "rojo";
+          hash = "sha256-wN+pi/My1aEfTKGhEPJljsRC/gzVkUSiA9aLWZslz1Q=";
+          cargoHash = "sha256-zp30mMv5n43iPccIx+oSP/T/za3mLP4+Nr4ZyQQnxbk=";
+          fetchSubmodules = true;
         };
+
+        asphalt = mkRustPackage {
+          pname = "asphalt";
+          version = "2.0.2";
+          owner = "jackTabsCode";
+          repo = "asphalt";
+          hash = "sha256-1SYRjKPYkQaCntsKiiMg0v4kzxnQ6Pns6fk5cO1ImVA=";
+          cargoHash = "sha256-R4pNHy/4BmmbKzuYWM31Iih626AL46lLe1BY3d57FZI=";
+          doCheck = false;
+        };
+
+        runtimeLibraries = with pkgs; [
+          glib
+          libX11
+          libxcb
+          libXcomposite
+          libXcursor
+          libXdamage
+          libXext
+          libXfixes
+          libXi
+          libXrender
+          libXtst
+          libXScrnSaver
+          libXrandr
+          nss
+          nspr
+          atk
+          at-spi2-atk
+          at-spi2-core
+          dbus
+          gdk-pixbuf
+          gtk3
+          pango
+          cairo
+          expat
+          libdrm
+          mesa
+          alsa-lib
+          cups
+        ];
       in
       {
+        packages = {
+          inherit rojo asphalt;
+          default = rojo;
+        };
+
         devShells.default = pkgs.mkShell {
           ESLINT_USE_FLAT_CONFIG = "false";
 
-          packages = [
+          packages = with pkgs; [
             rojo
-            pkgs.nodejs_22
-            pkgs.git
-            pkgs.luau-lsp
-            pkgs.ripgrep
+            asphalt
+
+            nodejs_22
+            git
+            luau-lsp
+            ripgrep
           ];
 
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-            pkgs.glib
-            pkgs.libX11
-            pkgs.libxcb
-            pkgs.libXcomposite
-            pkgs.libXcursor
-            pkgs.libXdamage
-            pkgs.libXext
-            pkgs.libXfixes
-            pkgs.libXi
-            pkgs.libXrender
-            pkgs.libXtst
-            pkgs.libXScrnSaver
-            pkgs.libXrandr
-            pkgs.nss
-            pkgs.atk
-            pkgs.at-spi2-atk
-            pkgs.at-spi2-core
-            pkgs.dbus
-            pkgs.gdk-pixbuf
-            pkgs.gtk3
-            pkgs.pango
-            pkgs.cairo
-            pkgs.expat
-            pkgs.libdrm
-            pkgs.mesa
-            pkgs.alsa-lib
-            pkgs.cups
-            pkgs.nspr
-          ];
+          LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibraries;
         };
-      });
+      }
+    );
 }
