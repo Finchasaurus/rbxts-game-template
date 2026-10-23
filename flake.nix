@@ -105,7 +105,6 @@
         };
 
         devShells.default = pkgs.mkShell {
-          ESLINT_USE_FLAT_CONFIG = "false";
 
           packages = with pkgs; [
             rojo
@@ -118,6 +117,16 @@
           ];
 
           LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibraries;
+          ESLINT_USE_FLAT_CONFIG = "false";
+
+          shellHook = ''
+            if [ -f /proc/sys/kernel/osrelease ] &&
+               grep -qi microsoft /proc/sys/kernel/osrelease; then
+              export ROBLOX_STUDIO_PATH="$(
+                wslpath -u "$(cmd.exe /C 'echo %LOCALAPPDATA%' 2>/dev/null | tr -d '\r')"
+              )/Roblox Studio"
+            fi
+          '';
         };
       }
     );
