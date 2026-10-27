@@ -1,6 +1,6 @@
 import type { Entity, World } from "@rbxts/jecs";
 import { useEffect, useMemo } from "@rbxts/react";
-import { createWorld } from "shared/core/world";
+import { createWorld } from "core/shared/world";
 
 export function createBasicStoryWorld() {
 	return useMemo(() => {

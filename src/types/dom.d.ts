@@ -16,7 +16,7 @@ declare global {
 
 	interface ServerScriptService {
 		server: Folder & {
-			systems: Folder;
+			providers: Folder;
 		};
 	}
 

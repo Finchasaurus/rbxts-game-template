@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from "@rbxts/react";
 import React, { createContext, useContext, useEffect, useState } from "@rbxts/react";
 import { useGetComponent } from "app/hooks/use-get-component";
-import { GameServerSettings, ServerLoadState } from "shared/components";
+import { GameServerSettings, ServerLoadState } from "components";
 
 const LoadingContext = createContext<boolean>(false);
 
