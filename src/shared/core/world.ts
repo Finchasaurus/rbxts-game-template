@@ -1,10 +1,10 @@
 import jecs from "@rbxts/jecs";
 import jecsUtils from "@rbxts/jecs-utils";
-
 import "@rbxts/replecs";
 import { RunService } from "@rbxts/services";
 import { Environment } from "@rbxts/ui-labs";
 import "shared/components";
+import "shared/network/replecs-roblox";
 import { initReplicator } from "shared/network/replicator";
 import { initScheduler } from "./scheduler";
 
