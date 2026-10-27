@@ -11,7 +11,7 @@ const world = createWorld();
 
 Konsole.host();
 
-for (const s of [...ReplicatedStorage.shared.GetChildren(), ...ServerScriptService.server.GetChildren()]) {
+for (const s of [...ReplicatedStorage.shared.GetDescendants(), ...ServerScriptService.server.GetDescendants()]) {
 	if (s.IsA("ModuleScript")) {
 		require(s);
 	}

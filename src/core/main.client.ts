@@ -8,7 +8,7 @@ import { initProviders } from "providers/shared/providers";
 
 const world = createWorld();
 
-for (const s of [...ReplicatedStorage.shared.GetChildren(), ...ReplicatedStorage.client.GetChildren()]) {
+for (const s of [...ReplicatedStorage.shared.GetDescendants(), ...ReplicatedStorage.client.GetDescendants()]) {
 	if (s.IsA("ModuleScript")) {
 		// eslint-disable-next-line @typescript-eslint/no-require-imports
 		require(s);
