@@ -15,7 +15,7 @@
 	"type": "commonjs",
 	"devDependencies": {
 		"@rbxts/compiler-types": "^3.0.0-types.0",
-		"@rbxts/types": "^1.0.957",
+		"@rbxts/types": "^1.0.962",
 		"@typescript-eslint/eslint-plugin": "^8.51.0",
 		"@typescript-eslint/parser": "^8.51.0",
 		"eslint": "^9.39.2",
@@ -37,7 +37,7 @@
 		"@kyrorblx/konsole": "^0.1.11",
 		"@rbxts/jabby": "^0.4.0",
 		"@rbxts/jecs": "github:Ukendio/jecs",
-		"@rbxts/jecs-utils": "^1.4.2",
+		"@rbxts/jecs-utils": "^1.4.4",
 		"@rbxts/lyra": "^0.6.1",
 		"@rbxts/planck": "^1.0.0",
 		"@rbxts/planck-jabby": "^1.0.0",
@@ -66,7 +66,7 @@
 			"@rbxts/jecs": "github:Ukendio/jecs"
 		},
 		"@rbxts/planck-jabby": {
-			"@rbxts/jabby": "^0.5.1"
+			"@rbxts/jabby": "^0.4.1"
 		}
 	}
 }
